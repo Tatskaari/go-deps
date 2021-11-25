@@ -12,3 +12,12 @@ go_library(
         "//third_party/go/golang.org/x/tools",
     ],
 )
+
+go_test(
+    name = "resolve_test",
+    srcs = ["resolve_test.go"],
+    deps = [
+        ":resolve",
+        "//third_party/go/github.com/stretchr/testify",
+    ],
+)

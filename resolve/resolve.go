@@ -258,7 +258,7 @@ func (r *resolver) resolve(pkgs []*packages.Package) {
 
 		newPackages := make([]*packages.Package, 0, len(p.Imports))
 		for importName, importedPkg := range p.Imports {
-			if knownimports.IsKnown(importName) {
+			if knownimports.IsInGoRoot(importName) {
 				continue
 			}
 			newPkg := r.GetPackage(importName)

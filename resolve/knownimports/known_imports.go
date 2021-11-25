@@ -1,6 +1,13 @@
 package knownimports
 
-var KnownImports = map[string]struct{}{
+import (
+	"go/build"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+var goRootImports = map[string]struct{}{
 	"archive/tar": {},
 	"archive/zip": {},
 	"bufio": {},
@@ -14,30 +21,7 @@ var KnownImports = map[string]struct{}{
 	"container/list": {},
 	"container/ring": {},
 	"context": {},
-	"crypto/aes": {},
-	"crypto/cipher": {},
-	"crypto/des": {},
-	"crypto/dsa": {},
-	"crypto/ecdsa": {},
-	"crypto/ed25519": {},
-	"crypto/ed25519/internal/edwards25519": {},
-	"crypto/elliptic": {},
-	"crypto/elliptic/internal/fiat/please": {},
-	"crypto/hmac": {},
 	"crypto": {},
-	"crypto/internal/randutil": {},
-	"crypto/internal/subtle": {},
-	"crypto/md5": {},
-	"crypto/rand": {},
-	"crypto/rc4": {},
-	"crypto/rsa": {},
-	"crypto/sha1": {},
-	"crypto/sha256": {},
-	"crypto/sha512": {},
-	"crypto/subtle": {},
-	"crypto/tls": {},
-	"crypto/x509": {},
-	"crypto/x509/pkix": {},
 	"database/sql/driver": {},
 	"database/sql": {},
 	"debug/dwarf": {},
@@ -203,7 +187,20 @@ var KnownImports = map[string]struct{}{
 	"unsafe": {},
 }
 
-func IsKnown(i string) bool {
-	_, ok := KnownImports[i]
-	return ok
+func IsInGoRoot(i string) bool {
+	if strings.HasPrefix(i, "crypto/") {
+		return true
+	}
+	_, ok := goRootImports[i]
+	if ok {
+		return true
+	}
+
+	b := build.Default
+	path := filepath.Join(b.GOROOT, "pkg", b.GOOS + "_" + b.GOARCH, i + ".a")
+	if _, err := os.Lstat(path); err == nil {
+		goRootImports[i] = struct{}{}
+		return true
+	}
+	return false
 }
