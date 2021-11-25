@@ -1,0 +1,7 @@
+go_module(
+    name = "go-spew",
+    install = ["spew"],
+    module = "github.com/davecgh/go-spew",
+    version = "v1.1.0",
+    visibility = ["PUBLIC"],
+)

@@ -7,8 +7,8 @@ import (
 
 	"github.com/jessevdk/go-flags"
 
-	"github.com/tatskaari/go-deps/resolve/driver"
 	"github.com/tatskaari/go-deps/resolve"
+	"github.com/tatskaari/go-deps/resolve/driver"
 	"github.com/tatskaari/go-deps/rules"
 )
 

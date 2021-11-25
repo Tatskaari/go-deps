@@ -55,7 +55,7 @@ func NewPleaseDriver(please, thirdPartyFolder string) *pleaseDriver {
 }
 
 func (driver *pleaseDriver) pkgInfo(id string) (*packageInfo, error) {
-	if knownimports.IsKnown(id) {
+	if knownimports.IsInGoRoot(id) {
 		srcDir := filepath.Join(build.Default.GOROOT, "src")
 		return &packageInfo{isSDKPackage: true, id: id, srcRoot: srcDir, pkgDir: filepath.Join(srcDir, id)}, nil
 	}
@@ -131,6 +131,10 @@ func (driver *pleaseDriver) loadPattern(pattern string) ([]string, error) {
 // loadPackage will parse a go package's sources to find out what it imports and load them into driver.packages
 func (driver *pleaseDriver) loadPackage(info *packageInfo) error {
 	if _, ok := driver.packages[info.id]; ok {
+		return nil
+	}
+
+	if knownimports.IsInGoRoot(info.id) {
 		return nil
 	}
 
