@@ -1,6 +1,6 @@
 # Go-Deps
 
-This tool is used to help maintian your `go_module()` rules in a [Please](https://please.build) project.
+This tool is used to help maintain your `go_module()` rules in a [Please](https://please.build) project.
 
 # Features
 
@@ -15,7 +15,7 @@ files to assign reviewers to branches of the source tree.
 
 # Installation
 
-To install this in your project, add the following to your project:
+The simplest way to use this tool is to add the following to your project:
 
 ```
 GO_DEPS_VERSION = < version here, check https://github.com/Tatskaari/go-deps/releases >
@@ -27,29 +27,49 @@ remote_file(
 )
 ```
 
+This can then be ran with `plz run //tools:go-deps -- -w github.com/example/module/...@v1.0.0`, where `//tools` is the 
+package you added the above rules to.
+
+## Aliases
+To avoid specifying the target each time, an alias can be used. Add the following to your `.plzconfig`:
+```
+[alias "go-get"]
+desc = Runs the go deps tool to install new dependencies into the repo
+cmd = run //tools:go-deps -- 
+```
+
+Which can then be invoked as such:
+```
+$ plz go-get -w example.com/some/module
+```
+
 # Usage
-Note: go-deps works best with a `go.mod`.
+Simply run `go-deps -w github.com/example/module/...`. Use the `go get` style `package@version` syntax to specify a 
+specific version, e.g. `go-deps -w github.com/example/module/...@v1.0.0`. This tool will install the latest version by 
+default.
 
-First, install the module with `go get github.com/example/module/...`, then simply run `go-deps -w -m github.com/example/module/...`.
-To add the `go_module()` rules into separate `BUILD` files for each module, pass the `--structured, -s` flag. 
+N.B: This tool operates on packages, not modules. Make sure the package you target actually contains `.go` files. Use
+the `...` wildcard to install all packages under a certain path, as in the example above. 
 
-Go deps works on the same package wildcards as `go get` or `go list`, so make sure your wildcard includes all the packages you want to use. 
+To add the `go_module()` rules into separate `BUILD` files for each module, pass the `--structured, -s` flag.
 
 ```
-NAME:
-   please-go-get - Add a Go Module to an existing Please Monorepo
+Example usage: 
+  go-deps -w github.com/example/module/...@v1.0.0
 
-USAGE:
-   go-deps [global options] command [command options] [arguments...]
+Usage:
+  go-deps [OPTIONS] [packages...]
 
-COMMANDS:
-   help, h  Shows a list of commands or help for one command
+Application Options:
+      --third_party= The location of the folder containing your third party build rules. (default: third_party/go)
+  -s, --structured   Whether to produce a structured directory tree for each module. Defaults to a flat BUILD file for all third party rules.
+  -w, --write        Whether write the rules back to the BUILD files. Prints to stdout by default.
+      --please_path= The path to the Please binary. (default: plz)
 
-GLOBAL OPTIONS:
-   --module value, -m value  Module to add
-   --third_party value       The third party folder to write rules to (default: third_party/go)
-   --write, -w               Whether to update the BUILD file(s), or just print to stdout (default: false)
-   --structured, -s          Whether to put each module in a directory matching the module path, or write all module to a single file. (default: false)
-   --help, -h                show help (default: false)
+Help Options:
+  -h, --help         Show this help message
+
+Arguments:
+  packages:          Packages to install following 'go get' style patters. These can optionally have versions e.g. github.com/example/module/...@v1.0.0
 ```
 

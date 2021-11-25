@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"io/fs"
 	"log"
+	"os"
 	"path/filepath"
 
 	"github.com/jessevdk/go-flags"
@@ -14,19 +16,24 @@ import (
 
 var opts struct {
 	ThirdPartyFolder string `long:"third_party" default:"third_party/go" description:"The location of the folder containing your third party build rules."`
-	Structured       bool   `long:"structured" short:"s" description:"Whether to produce a structured directory tree for each module. By default, a flat BUILD file for all third party rules."`
+	Structured       bool   `long:"structured" short:"s" description:"Whether to produce a structured directory tree for each module. Defaults to a flat BUILD file for all third party rules."`
 	Write            bool   `long:"write" short:"w" description:"Whether write the rules back to the BUILD files. Prints to stdout by default."`
-	PleasePath       string `long:"please_path" default:"plz" desciption:"The path to the Please binary."`
+	PleasePath       string `long:"please_path" default:"plz" description:"The path to the Please binary."`
 	Args             struct {
-		Packages []string `positional-arg-name:"packages" description:"Packages to install following 'go get' style patters. These can optionally have versions e.g. github.com/example/module...@v1.0.0"`
+		Packages []string `positional-arg-name:"packages" description:"Packages to install following 'go get' style patters. These can optionally have versions e.g. github.com/example/module/...@v1.0.0"`
 	} `positional-args:"true"`
 }
 
 // This binary will accept a module name and optionally a semver or commit hash, and will add this module to a BUILD file.
 func main() {
-	parser := flags.NewParser(&opts, flags.Default)
+	parser := flags.NewParser(&opts, flags.HelpFlag|flags.PassDoubleDash)
 	if _, err := parser.Parse(); err != nil {
-		log.Fatal(err)
+		fmt.Fprintf(os.Stderr, "Godeps is a developer productivity tool for the Please build system.\n" +
+			"It can add and updates third party modules to your project through \nan interface that should feel familiar to those used to `go get`.\n\n" +
+			"Example usage: \n" +
+			"  go-deps -w github.com/example/module/...@v1.0.0\n\n")
+		fmt.Fprintf(os.Stderr, "%v", err)
+		os.Exit(1)
 	}
 
 	// TODO(jpoole): load the BuildFileName from the .plzconfig
