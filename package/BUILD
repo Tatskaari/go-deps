@@ -4,7 +4,7 @@ def cross_compile(arch):
     return build_rule(
         name = f"go_deps_{arch}",
         srcs = [f"///{arch}//:go-deps"],
-        outs = [f"go-deps-{VERSION}-{arch}"],
+        outs = [f"go_deps_v{VERSION}_{arch}"],
         cmd = "mv $SRC $OUT",
     )
 
