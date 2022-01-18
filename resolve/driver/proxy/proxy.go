@@ -59,6 +59,8 @@ func (proxy *Proxy) GetLatestVersion(modulePath string) (Module, error) {
 		return Module{}, err
 	}
 
+	defer resp.Body.Close()
+
 	if resp.StatusCode != 200 {
 		if resp.StatusCode == 404 || resp.StatusCode == 410 {
 			proxy.queryResults[modulePath] = Module{}
