@@ -27,7 +27,7 @@ type resolver struct {
 	*Modules
 	moduleCounts   map[string]int
 	rootModuleName string
-	config *packages.Config
+	config         *packages.Config
 }
 
 func newResolver(rootModuleName string, config *packages.Config) *resolver {
@@ -37,9 +37,9 @@ func newResolver(rootModuleName string, config *packages.Config) *resolver {
 			Mods:        map[string]*Module{},
 			ImportPaths: map[*Package]*ModulePart{},
 		},
-		moduleCounts: map[string]int{},
+		moduleCounts:   map[string]int{},
 		rootModuleName: rootModuleName,
-		config: config,
+		config:         config,
 	}
 }
 
@@ -87,8 +87,8 @@ func (r *resolver) getOrCreateModulePart(m *Module, pkg *Package) *ModulePart {
 	if validPart == nil {
 		validPart = &ModulePart{
 			Packages: map[*Package]struct{}{},
-			Module: m,
-			Index: len(m.Parts) + 1,
+			Module:   m,
+			Index:    len(m.Parts) + 1,
 		}
 		m.Parts = append(m.Parts, validPart)
 	}
@@ -108,7 +108,6 @@ func (r *resolver) addPackageToModuleGraph(done map[*Package]struct{}, pkg *Pack
 	if r.rootModuleName == pkg.Module {
 		return
 	}
-
 
 	part := r.getOrCreateModulePart(r.GetModule(pkg.Module), pkg)
 	part.Packages[pkg] = struct{}{}
@@ -145,7 +144,7 @@ func (r *resolver) addPackagesToModules(done map[*Package]struct{}) {
 func UpdateModules(modules *Modules, getPaths []string, goListDriver packages.Driver) error {
 	defer progress.Clear()
 
-	pkgs, r, err := load(getPaths, goListDriver)
+	pkgs, r, err := Load(getPaths, goListDriver)
 	if err != nil {
 		return err
 	}
@@ -163,7 +162,6 @@ func UpdateModules(modules *Modules, getPaths []string, goListDriver packages.Dr
 		}
 	}
 
-
 	r.resolve(pkgs)
 	r.addPackagesToModules(done)
 
@@ -171,22 +169,21 @@ func UpdateModules(modules *Modules, getPaths []string, goListDriver packages.Dr
 		return err
 	}
 
-	if err := r.setLicence(pkgs); err != nil {
+	if err := r.SetLicence(pkgs); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func load(getPaths []string, driver packages.Driver) ([]*packages.Package, *resolver, error) {
-	progress.PrintUpdate( "Analysing packages...")
+func Load(getPaths []string, driver packages.Driver) ([]*packages.Package, *resolver, error) {
+	progress.PrintUpdate("Analysing packages...")
 
 	config := &packages.Config{
-		Mode: packages.NeedImports|packages.NeedModule|packages.NeedName|packages.NeedFiles,
+		Mode:   packages.NeedImports | packages.NeedModule | packages.NeedName | packages.NeedFiles,
 		Driver: driver,
 	}
 	r := newResolver(getCurrentModuleName(), config)
-
 
 	pkgs, err := packages.Load(config, getPaths...)
 	if err != nil {
@@ -236,7 +233,7 @@ func (r *resolver) resolve(pkgs []*packages.Package) {
 		if p.Module != nil {
 			r.GetModule(p.Module.Path).Version = p.Module.Version
 		}
-		if len(p.GoFiles) + len(p.OtherFiles) == 0 {
+		if len(p.GoFiles)+len(p.OtherFiles) == 0 {
 			continue
 		}
 		pkg := r.GetPackage(p.PkgPath)
@@ -320,7 +317,7 @@ func (mods *Modules) GetModule(path string) *Module {
 	return m
 }
 
-func (r *resolver) setLicence(pkgs []*packages.Package) (err error) {
+func (r *resolver) SetLicence(pkgs []*packages.Package) (err error) {
 	c, _ := licenses.NewClassifier(0.9)
 
 	done := 0 // start at 1 to ignore the root module
@@ -328,7 +325,7 @@ func (r *resolver) setLicence(pkgs []*packages.Package) (err error) {
 		if err != nil {
 			return
 		}
-		if _, ok := r.Pkgs[p.PkgPath]; !ok  {
+		if _, ok := r.Pkgs[p.PkgPath]; !ok {
 			return
 		}
 		var m *Module
@@ -350,7 +347,6 @@ func (r *resolver) setLicence(pkgs []*packages.Package) (err error) {
 
 		done++
 		progress.PrintUpdate("Adding licenses... %d of %d modules.", done, len(r.Mods))
-
 
 		var pkgDir string
 		switch {
