@@ -1,24 +1,34 @@
 package licences
 
 import (
-	"fmt"
+	"github.com/google/go-licenses/licenses"
 	"github.com/tatskaari/go-deps/resolve"
+	"github.com/tatskaari/go-deps/resolve/driver"
 	"golang.org/x/tools/go/packages"
 )
 
-func SetLicences(modules *resolve.Modules, driver packages.Driver) error {
-	var paths []string
+func SetLicences(modules *resolve.Modules, driver *driver.PleaseDriver) error {
+	var paths map[string]*Module
 	for _, m := range modules.Mods {
 		for _, p := range m.Parts {
 			p.Modified = true
 		} // So the licences actually get set
-		paths = append(paths, fmt.Sprintf("%v@%v", m.Name, m.Version))
+		root, err := driver.EnsureDownloaded(&packages.Module{Path: m.Name, Version: m.Version})
+		if err != nil {
+			return err
+		}
+
+		paths[root] = m
 	}
 
-	pkgs, r, err := resolve.Load(paths, driver)
-	if err != nil {
-		return err
-	}
+	c, _ := licenses.NewClassifier(0.9)
 
-	return r.SetLicence(pkgs)
+	for root, m := range modules.Mods {
+		licence, _, err := c.Identify(root)
+		if err != nil {
+			return err
+		}
+		m.Licence = licence
+	}
+	return nil
 }

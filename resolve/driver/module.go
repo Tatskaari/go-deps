@@ -24,7 +24,7 @@ type goModDownloadRule struct {
 }
 
 // ensureDownloaded ensures the module has been downloaded and returns the filepath to its source root
-func (driver *pleaseDriver) ensureDownloaded(mod *packages.Module) (srcRoot string, err error) {
+func (driver *PleaseDriver) EnsureDownloaded(mod *packages.Module) (srcRoot string, err error) {
 	// TODO(jpoole): walk the module srcs tree to find all known packages for this module to avoid hitting the proxy
 	key := fmt.Sprintf("%v@%v", mod.Path, mod.Version)
 	if path, ok := driver.downloaded[key]; ok {
@@ -104,7 +104,7 @@ func (driver *pleaseDriver) ensureDownloaded(mod *packages.Module) (srcRoot stri
 
 // determineVersionRequirements loads the version requirements from the go.mod files for each module, and applies
 // the minimum valid version algorithm.
-func (driver *pleaseDriver) determineVersionRequirements(mod, ver string) error {
+func (driver *PleaseDriver) determineVersionRequirements(mod, ver string) error {
 	if oldVer, ok := driver.moduleRequirements[mod]; ok {
 		// if we already require at this version or higher, we don't need to do anything
 		if semver.Compare(ver, oldVer.Version) <= 0 {
@@ -138,7 +138,7 @@ func (driver *pleaseDriver) determineVersionRequirements(mod, ver string) error 
 
 // resolveGetModules resolves the get wildcards with versions, and loads them into the driver. It returns the package
 // parts of the get patterns e.g. github.com/example/module/...@v1.0.0 -> github.com/example/module/...
-func (driver *pleaseDriver) resolveGetModules(patterns []string) ([]string, error) {
+func (driver *PleaseDriver) resolveGetModules(patterns []string) ([]string, error) {
 	pkgWildCards := make([]string, 0, len(patterns))
 	for _, p := range patterns {
 		parts := strings.Split(p, "@")
@@ -169,7 +169,7 @@ func (driver *pleaseDriver) resolveGetModules(patterns []string) ([]string, erro
 
 // loadPleaseModules queries the Please build graph and loads in any modules defined there. It applies the minimum valid
 // version algorithm.
-func (driver *pleaseDriver) loadPleaseModules() error {
+func (driver *PleaseDriver) loadPleaseModules() error {
 	out := &bytes.Buffer{}
 	stdErr := &bytes.Buffer{}
 	cmd := exec.Command(driver.pleasePath, "query", "print", "-i", "go_module", "--json", fmt.Sprintf("//%s/...", driver.thirdPartyFolder))
@@ -217,7 +217,7 @@ func (driver *pleaseDriver) loadPleaseModules() error {
 }
 
 // findPackageInKnownModules attempt to find the package in the existing modules to avoid hitting the proxy
-func (driver *pleaseDriver) findPackageInKnownModules(id string) string {
+func (driver *PleaseDriver) findPackageInKnownModules(id string) string {
 	var candidate *packages.Module
 	for _, req := range driver.moduleRequirements {
 		if strings.HasPrefix(id, req.Path) {
@@ -230,7 +230,7 @@ func (driver *pleaseDriver) findPackageInKnownModules(id string) string {
 		return ""
 	}
 
-	root, err := driver.ensureDownloaded(candidate)
+	root, err := driver.EnsureDownloaded(candidate)
 	if err != nil {
 		return ""
 	}
@@ -242,7 +242,7 @@ func (driver *pleaseDriver) findPackageInKnownModules(id string) string {
 	return ""
 }
 
-func (driver *pleaseDriver) ModuleForPackage(id string) (*packages.Module, error) {
+func (driver *PleaseDriver) ModuleForPackage(id string) (*packages.Module, error) {
 	module := driver.findPackageInKnownModules(id)
 	if module == "" {
 		var err error

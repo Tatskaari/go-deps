@@ -20,7 +20,7 @@ const dirPerms = os.ModeDir | 0775
 
 var client = http.DefaultClient
 
-type pleaseDriver struct {
+type PleaseDriver struct {
 	proxy              *proxy.Proxy
 	thirdPartyFolder   string
 	pleasePath         string
@@ -39,14 +39,14 @@ type packageInfo struct {
 	isSDKPackage    bool
 }
 
-func NewPleaseDriver(please, thirdPartyFolder string) *pleaseDriver {
+func NewPleaseDriver(please, thirdPartyFolder string) *PleaseDriver {
 	//TODO(jpoole): split this on , and get rid of direct
 	proxyURL := os.Getenv("GOPROXY")
 	if proxyURL == "" {
 		proxyURL = "https://proxy.golang.org"
 	}
 
-	return &pleaseDriver{
+	return &PleaseDriver{
 		pleasePath:       please,
 		thirdPartyFolder: thirdPartyFolder,
 		proxy:            proxy.New(proxyURL),
@@ -55,7 +55,7 @@ func NewPleaseDriver(please, thirdPartyFolder string) *pleaseDriver {
 	}
 }
 
-func (driver *pleaseDriver) pkgInfo(id string) (*packageInfo, error) {
+func (driver *PleaseDriver) pkgInfo(id string) (*packageInfo, error) {
 	if knownimports.IsInGoRoot(id) {
 		srcDir := filepath.Join(build.Default.GOROOT, "src")
 		return &packageInfo{isSDKPackage: true, id: id, srcRoot: srcDir, pkgDir: filepath.Join(srcDir, id)}, nil
@@ -81,7 +81,7 @@ func (driver *pleaseDriver) pkgInfo(id string) (*packageInfo, error) {
 }
 
 // loadPattern will load a package wildcard into driver.packages, walking the directory tree if necessary
-func (driver *pleaseDriver) loadPattern(pattern string) ([]string, error) {
+func (driver *PleaseDriver) loadPattern(pattern string) ([]string, error) {
 	walk := strings.HasSuffix(pattern, "...")
 
 	info, err := driver.pkgInfo(strings.TrimSuffix(pattern, "/..."))
@@ -126,7 +126,7 @@ func (driver *pleaseDriver) loadPattern(pattern string) ([]string, error) {
 }
 
 // loadPackage will parse a go package's sources to find out what it imports and load them into driver.packages
-func (driver *pleaseDriver) loadPackage(info *packageInfo) error {
+func (driver *PleaseDriver) loadPackage(info *packageInfo) error {
 	if _, ok := driver.packages[info.id]; ok {
 		return nil
 	}
@@ -177,7 +177,7 @@ func (driver *pleaseDriver) loadPackage(info *packageInfo) error {
 	return nil
 }
 
-func (driver *pleaseDriver) Resolve(cfg *packages.Config, patterns ...string) (*packages.DriverResponse, error) {
+func (driver *PleaseDriver) Resolve(cfg *packages.Config, patterns ...string) (*packages.DriverResponse, error) {
 	driver.packages = map[string]*packages.Package{}
 	driver.moduleRequirements = map[string]*packages.Module{}
 
