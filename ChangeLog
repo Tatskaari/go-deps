@@ -1,5 +1,12 @@
 Version 1.4.1
 -------------
+    * Fix for resolving modules that are nested within other modules
+    * Fix for modules with capitol letters in their name
+    * Fix for modules that are required by modules with no go.mod
+
+
+Version 1.4.1
+-------------
     * Fix the release artifact names
     * Update the README and usage info
 
