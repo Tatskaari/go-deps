@@ -16,7 +16,7 @@ func SetLicences(modules *resolve.Modules, driver *driver.PleaseDriver) error {
 		} // So the licences actually get set
 		root, err := driver.EnsureDownloaded(&packages.Module{Path: m.Name, Version: m.Version})
 		if err != nil {
-			return err
+			continue
 		}
 
 		paths[root] = m
