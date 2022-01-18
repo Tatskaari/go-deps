@@ -1,5 +1,5 @@
 [please]
-version = 16.15.0
+version = 16.18.0
 
 [go]
 gotool = //third_party/go:toolchain|go
