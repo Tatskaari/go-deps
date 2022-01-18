@@ -4,14 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 
-	"golang.org/x/mod/modfile"
 	"golang.org/x/mod/semver"
 	"golang.org/x/tools/go/packages"
 
@@ -25,8 +23,9 @@ type goModDownloadRule struct {
 	srcRoot string
 }
 
-// ensureDownloaded ensures the a module has been downloaded and returns the filepath to its source root
+// ensureDownloaded ensures the module has been downloaded and returns the filepath to its source root
 func (driver *pleaseDriver) ensureDownloaded(mod *packages.Module) (srcRoot string, err error) {
+	// TODO(jpoole): walk the module srcs tree to find all known packages for this module to avoid hitting the proxy
 	key := fmt.Sprintf("%v@%v", mod.Path, mod.Version)
 	if path, ok := driver.downloaded[key]; ok {
 		return path, nil
@@ -63,11 +62,11 @@ func (driver *pleaseDriver) ensureDownloaded(mod *packages.Module) (srcRoot stri
 	}
 
 	var resp = struct {
-		Path string
-		GoMod string
+		Path    string
+		GoMod   string
 		Version string
-		Dir string
-		Error string
+		Dir     string
+		Error   string
 	}{}
 
 	wd, err := os.Getwd()
@@ -103,27 +102,6 @@ func (driver *pleaseDriver) ensureDownloaded(mod *packages.Module) (srcRoot stri
 	return resp.Dir, nil
 }
 
-// getGoMod returns the go mod for a modules from the proxy
-func (driver *pleaseDriver) getGoMod(mod, ver string) (*modfile.File, error) {
-	file := fmt.Sprintf("%s/%s/@v/%s.mod", driver.moduleProxy, strings.ToLower(mod), ver)
-	resp, err := client.Get(file)
-	if err != nil {
-		return nil, err
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("%v %v: \n%v", file, resp.StatusCode, string(body))
-	}
-
-	return modfile.Parse(file, body, nil)
-
-}
-
 // determineVersionRequirements loads the version requirements from the go.mod files for each module, and applies
 // the minimum valid version algorithm.
 func (driver *pleaseDriver) determineVersionRequirements(mod, ver string) error {
@@ -140,10 +118,10 @@ func (driver *pleaseDriver) determineVersionRequirements(mod, ver string) error 
 
 	progress.PrintUpdate("Resolving %v@%v", mod, ver)
 
-	modFile, err := driver.getGoMod(mod, ver)
+	modFile, err := driver.proxy.GetGoMod(mod, ver)
 	if err != nil {
 		ver := fmt.Sprintf("%v-incompatible", ver)
-		modFile, err = driver.getGoMod(mod, ver)
+		modFile, err = driver.proxy.GetGoMod(mod, ver)
 		if err != nil {
 			return err
 		}
@@ -167,7 +145,7 @@ func (driver *pleaseDriver) resolveGetModules(patterns []string) ([]string, erro
 		pkgPart := parts[0]
 		pkgWildCards = append(pkgWildCards, pkgPart)
 
-		mod, err := driver.resolveModuleForPackage(pkgPart)
+		mod, err := driver.proxy.ResolveModuleForPackage(pkgPart)
 		if err != nil {
 			return nil, err
 		}
@@ -176,11 +154,11 @@ func (driver *pleaseDriver) resolveGetModules(patterns []string) ([]string, erro
 				return nil, err
 			}
 		} else {
-			ver, err := driver.getLatestVersion(mod)
+			ver, err := driver.proxy.GetLatestVersion(mod)
 			if err != nil {
 				return nil, err
 			}
-			if err := driver.determineVersionRequirements(mod, ver); err != nil {
+			if err := driver.determineVersionRequirements(mod, ver.Version); err != nil {
 				return nil, err
 			}
 		}
@@ -202,8 +180,8 @@ func (driver *pleaseDriver) loadPleaseModules() error {
 		return fmt.Errorf("failed to query known modules: %v\n%v\n%v", err, out, stdErr)
 	}
 
-	res := map[string]struct{
-		Outs []string
+	res := map[string]struct {
+		Outs   []string
 		Labels []string
 	}{}
 
@@ -238,87 +216,61 @@ func (driver *pleaseDriver) loadPleaseModules() error {
 	return nil
 }
 
-// findKnownModule checks a list of discovered modules to see if the package pattern exists there
-func (driver *pleaseDriver) findKnownModule(pattern string) string {
-	longestMatch := ""
-	for _, mod := range driver.knownModules {
-		if pattern == mod {
-			return mod
-		}
-		if strings.HasPrefix(pattern, mod + "/") {
-			if len(mod) > len(longestMatch) {
-				longestMatch = mod
+// findPackageInKnownModules attempt to find the package in the existing modules to avoid hitting the proxy
+func (driver *pleaseDriver) findPackageInKnownModules(id string) string {
+	var candidate *packages.Module
+	for _, req := range driver.moduleRequirements {
+		if strings.HasPrefix(id, req.Path) {
+			if candidate == nil || len(candidate.Path) < len(req.Path) {
+				candidate = req
 			}
 		}
 	}
-	return longestMatch
+	if candidate == nil {
+		return ""
+	}
+
+	root, err := driver.ensureDownloaded(candidate)
+	if err != nil {
+		return ""
+	}
+
+	pkgDir := strings.TrimPrefix(id, candidate.Path)
+	if _, err := os.Lstat(filepath.Join(root, pkgDir)); err == nil {
+		return candidate.Path
+	}
+	return ""
 }
 
-
-// getLatestVersion returns the latest versin for a mdoule from the proxy
-func (driver *pleaseDriver) getLatestVersion(modulePath string) (string, error) {
-	if modulePath == "" {
-		panic(modulePath)
-	}
-	resp, err := client.Get(fmt.Sprintf("%s/%s/@latest", driver.moduleProxy, modulePath))
-	if err != nil {
-		return "", err
-	}
-
-	if resp.StatusCode != 200 {
-		return "", nil
-	}
-
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-
-	version := struct {
-		Version string
-	}{}
-	if err := json.Unmarshal(b, &version); err != nil {
-		return "", err
-	}
-	return version.Version, nil
-}
-
-// resolveModuleForPackage tries to determine the module name for a given package pattern
-func (driver *pleaseDriver) resolveModuleForPackage(pattern string) (string, error) {
-	mod := driver.findKnownModule(pattern)
-	if mod != "" {
-		return mod, nil
-	}
-	modulePath := strings.ToLower(strings.TrimSuffix(pattern,"/..."))
-
-	for modulePath != "." {
-		if strings.HasPrefix(pattern, "github.com") {
-			parts := strings.Split(pattern, "/")
-
-			if len(parts) < 3 {
-				return "", fmt.Errorf("can't determine module for package %v", pattern)
-			}
-			modPart := 3
-			if len(parts) >= 4 && strings.HasPrefix(parts[3], "v") {
-				modPart++
-			}
-			mod := filepath.Join(parts[:modPart]...)
-			driver.knownModules  = append(driver.knownModules, mod)
-			return mod, nil
-		}
-
-		// Try and get the latest version to determine if we've found the module part yet
-		version, err := driver.getLatestVersion(modulePath)
+func (driver *pleaseDriver) ModuleForPackage(id string) (*packages.Module, error) {
+	module := driver.findPackageInKnownModules(id)
+	if module == "" {
+		var err error
+		module, err = driver.proxy.ResolveModuleForPackage(id)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
-		if version == "" {
-			modulePath = filepath.Dir(modulePath)
-			continue
-		}
-
-		driver.knownModules = append(driver.knownModules, modulePath)
-		return modulePath, nil
 	}
-	return "", fmt.Errorf("couldn't find module for package %v", pattern)
+
+	if req, ok := driver.moduleRequirements[module]; ok {
+		return req, nil
+	}
+
+	latest, err := driver.proxy.GetLatestVersion(module)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO(jpoole): this could cause updates of already downloaded modules. We probably need to re-run our analysis at
+	//  this point
+	if err := driver.determineVersionRequirements(module, latest.Version); err != nil {
+		return nil, err
+	}
+
+	req, ok := driver.moduleRequirements[module]
+	if !ok {
+		return nil, fmt.Errorf("failed to determine module requirements for %v", id)
+	}
+
+	return req, nil
 }

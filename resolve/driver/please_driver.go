@@ -2,6 +2,8 @@ package driver
 
 import (
 	"fmt"
+	"github.com/tatskaari/go-deps/progress"
+	"github.com/tatskaari/go-deps/resolve/driver/proxy"
 	"go/build"
 	"io/fs"
 	"net/http"
@@ -19,11 +21,10 @@ const dirPerms = os.ModeDir | 0775
 var client = http.DefaultClient
 
 type pleaseDriver struct {
-	moduleProxy        string
+	proxy              *proxy.Proxy
 	thirdPartyFolder   string
 	pleasePath         string
 	moduleRequirements map[string]*packages.Module
-	knownModules 	   []string
 	pleaseModules      map[string]*goModDownloadRule
 
 	packages map[string]*packages.Package
@@ -40,15 +41,15 @@ type packageInfo struct {
 
 func NewPleaseDriver(please, thirdPartyFolder string) *pleaseDriver {
 	//TODO(jpoole): split this on , and get rid of direct
-	proxy := os.Getenv("GOPROXY")
-	if proxy == "" {
-		proxy = "https://proxy.golang.org"
+	proxyURL := os.Getenv("GOPROXY")
+	if proxyURL == "" {
+		proxyURL = "https://proxy.golang.org"
 	}
 
 	return &pleaseDriver{
-		pleasePath: please,
+		pleasePath:       please,
 		thirdPartyFolder: thirdPartyFolder,
-		moduleProxy:      proxy,
+		proxy:            proxy.New(proxyURL),
 		downloaded:       map[string]string{},
 		pleaseModules:    map[string]*goModDownloadRule{},
 	}
@@ -60,14 +61,9 @@ func (driver *pleaseDriver) pkgInfo(id string) (*packageInfo, error) {
 		return &packageInfo{isSDKPackage: true, id: id, srcRoot: srcDir, pkgDir: filepath.Join(srcDir, id)}, nil
 	}
 
-	modName, err := driver.resolveModuleForPackage(id)
+	mod, err := driver.ModuleForPackage(id)
 	if err != nil {
-		return nil, err
-	}
-
-	mod, ok := driver.moduleRequirements[modName]
-	if !ok {
-		return nil, fmt.Errorf("no module requirement for %v", modName)
+		return nil, fmt.Errorf("no module requirement for %v", err)
 	}
 
 	srcRoot, err := driver.ensureDownloaded(mod)
@@ -75,10 +71,11 @@ func (driver *pleaseDriver) pkgInfo(id string) (*packageInfo, error) {
 		return nil, err
 	}
 
+	pkgDir := strings.TrimPrefix(id, mod.Path)
 	return &packageInfo{
 		id:      id,
 		srcRoot: srcRoot,
-		pkgDir:  filepath.Join(srcRoot, strings.TrimPrefix(id, mod.Path)),
+		pkgDir:  filepath.Join(srcRoot, pkgDir),
 		mod:     mod,
 	}, nil
 }
@@ -138,6 +135,7 @@ func (driver *pleaseDriver) loadPackage(info *packageInfo) error {
 		return nil
 	}
 
+	progress.PrintUpdate("Analysing %v", info.id)
 	pkg, err := build.ImportDir(info.pkgDir, build.ImportComment)
 	if err != nil {
 		return fmt.Errorf("%v from %v", err, info.id)
