@@ -8,7 +8,9 @@ import (
 func SetLicences(modules *resolve.Modules, driver packages.Driver) error {
 	var paths []string
 	for _, m := range modules.Mods {
-		m.Parts[0].Modified = true // So the licences actually get set
+		for _, p := range m.Parts {
+			p.Modified = true
+		} // So the licences actually get set
 		paths = append(paths, m.Name)
 	}
 
