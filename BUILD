@@ -12,6 +12,7 @@ go_binary(
     visibility = ["PUBLIC"],
     deps = [
         "//resolve",
+        "//licences",
         "//resolve/driver",
         "//rules",
         "//third_party/go/github.com/jessevdk/go-flags",
