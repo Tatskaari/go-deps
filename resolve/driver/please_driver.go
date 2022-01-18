@@ -66,7 +66,7 @@ func (driver *PleaseDriver) pkgInfo(id string) (*packageInfo, error) {
 		return nil, fmt.Errorf("no module requirement for %v", err)
 	}
 
-	srcRoot, err := driver.ensureDownloaded(mod)
+	srcRoot, err := driver.EnsureDownloaded(mod)
 	if err != nil {
 		return nil, err
 	}
