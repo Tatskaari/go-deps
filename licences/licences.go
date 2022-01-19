@@ -27,7 +27,13 @@ func SetLicences(modules *resolve.Modules, driver *driver.PleaseDriver) error {
 	c, _ := licenses.NewClassifier(0.9)
 
 	for root, m := range paths {
-		licence, _, err := c.Identify(root)
+
+		path, e := licenses.Find(root, c)
+		if e != nil {
+			fmt.Printf("Faield to find licence for %v\n", root)
+			continue
+		}
+		licence, _, err := c.Identify(path)
 		if err != nil {
 			return fmt.Errorf("failed to identify licence ofr %s: %v", root, err)
 		}
