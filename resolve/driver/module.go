@@ -169,7 +169,7 @@ func (driver *PleaseDriver) resolveGetModules(patterns []string) ([]string, erro
 
 // loadPleaseModules queries the Please build graph and loads in any modules defined there. It applies the minimum valid
 // version algorithm.
-func (driver *PleaseDriver) loadPleaseModules() error {
+func (driver *PleaseDriver) LoadPleaseModules() error {
 	out := &bytes.Buffer{}
 	stdErr := &bytes.Buffer{}
 	cmd := exec.Command(driver.pleasePath, "query", "print", "-i", "go_module", "--json", fmt.Sprintf("//%s/...", driver.thirdPartyFolder))

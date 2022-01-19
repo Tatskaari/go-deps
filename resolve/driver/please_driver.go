@@ -190,7 +190,7 @@ func (driver *PleaseDriver) Resolve(cfg *packages.Config, patterns ...string) (*
 		return nil, err
 	}
 
-	if err := driver.loadPleaseModules(); err != nil {
+	if err := driver.LoadPleaseModules(); err != nil {
 		return nil, err
 	}
 

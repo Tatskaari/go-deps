@@ -17,6 +17,10 @@ func SetLicences(modules *resolve.Modules, driver *driver.PleaseDriver) error {
 		return err
 	}
 
+	if err := driver.LoadPleaseModules(); err != nil {
+		return err
+	}
+
 	var paths = map[string]*model.Module{}
 	for _, m := range modules.Mods {
 		for _, p := range m.Parts {
