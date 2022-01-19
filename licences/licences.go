@@ -14,7 +14,7 @@ import (
 func SetLicences(modules *resolve.Modules, driver *driver.PleaseDriver) error {
 	wd, err := os.Getwd()
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	var paths = map[string]*model.Module{}
