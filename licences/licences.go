@@ -1,6 +1,7 @@
 package licences
 
 import (
+	"fmt"
 	"github.com/google/go-licenses/licenses"
 	"github.com/tatskaari/go-deps/resolve"
 	"github.com/tatskaari/go-deps/resolve/driver"
@@ -27,7 +28,7 @@ func SetLicences(modules *resolve.Modules, driver *driver.PleaseDriver) error {
 	for root, m := range modules.Mods {
 		licence, _, err := c.Identify(root)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to identify licence ofr %s: %v", root, err)
 		}
 		m.Licence = licence
 	}
