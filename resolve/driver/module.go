@@ -96,7 +96,6 @@ func (driver *PleaseDriver) EnsureDownloaded(mod *packages.Module) (srcRoot stri
 	if err := json.Unmarshal(out, &resp); err != nil {
 		return "", err
 	}
-	fmt.Printf("%#v\n", resp)
 
 	driver.downloaded[key] = resp.Dir
 
