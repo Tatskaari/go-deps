@@ -76,6 +76,9 @@ func (driver *pleaseDriver) ensureDownloaded(mod *packages.Module) (srcRoot stri
 
 	// Downlaod using `go mod download`
 	cmd := exec.Command("go", "mod", "download", "--json", key)
+	if goroot := os.Getenv("GOROOT"); goroot != "" {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("GOROOT=%s", goroot))
+	}
 	cmd.Env = append(cmd.Env, fmt.Sprintf("GOPATH=%s", filepath.Join(wd, "plz-out/godeps/go")))
 	cmd.Dir = "plz-out/godeps"
 	progress.PrintUpdate("Downloading %s...", key)
