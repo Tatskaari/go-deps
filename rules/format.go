@@ -59,7 +59,7 @@ func (file *BuildFile) partName(part *resolve.ModulePart, structured bool) strin
 	return name
 }
 
-func (file *BuildFile) downloadRuleName(module *resolve.Module,  structured bool) string {
+func (file *BuildFile) downloadRuleName(module *resolve.Module, structured bool) string {
 	if name, ok := file.downloadNames[module]; ok {
 		return name
 	}
@@ -102,12 +102,12 @@ func (g *BuildGraph) file(mod *resolve.Module, structured bool, thirdPartyFolder
 	}
 }
 
-
 func cannonicalise(name, modpath, thirdParty string, structured bool) string {
 	if !structured {
 		return ":" + name
 	}
-	return "//" + filepath.Join(thirdParty, modpath)
+
+	return "//" + filepath.Join(thirdParty, modpath) + ":" + name
 }
 
 func (g *BuildGraph) Format(structured, write bool, thirdPartyFolder string) error {
@@ -149,7 +149,7 @@ func (g *BuildGraph) Format(structured, write bool, thirdPartyFolder string) err
 
 			if len(m.Parts) > 1 {
 				modRule.DelAttr("version")
-				modRule.SetAttr("download", NewStringExpr(":" + file.downloadRuleName(m, structured)))
+				modRule.SetAttr("download", NewStringExpr(":"+file.downloadRuleName(m, structured)))
 			} else {
 				if m.Licence != "" {
 					modRule.SetAttr("licences", NewStringList(m.Licence))
@@ -167,7 +167,7 @@ func (g *BuildGraph) Format(structured, write bool, thirdPartyFolder string) err
 			doneInstalls := map[string]struct{}{}
 
 			for _, i := range part.InstallWildCards {
-				installs = append(installs, i + "/...")
+				installs = append(installs, i+"/...")
 			}
 
 			for pkg := range part.Packages {
@@ -182,12 +182,17 @@ func (g *BuildGraph) Format(structured, write bool, thirdPartyFolder string) err
 
 				for _, i := range pkg.Imports {
 					dep := g.Modules.Import(i)
-					depRuleName := file.partName(dep, structured)
-					if _, ok := doneDeps[depRuleName]; ok || dep.Module == m {
+					depFile, err := g.file(dep.Module, structured, thirdPartyFolder)
+					if err != nil {
+						return err
+					}
+					depRuleName := depFile.partName(dep, structured)
+					depRule := cannonicalise(depRuleName, dep.Module.Name, thirdPartyFolder, structured)
+					if _, ok := doneDeps[depRule]; ok || dep.Module == m {
 						continue
 					}
-					doneDeps[depRuleName] = struct{}{}
-					deps = append(deps, cannonicalise(depRuleName, dep.Module.Name, thirdPartyFolder, structured))
+					doneDeps[depRule] = struct{}{}
+					deps = append(deps, depRule)
 				}
 			}
 
@@ -196,7 +201,11 @@ func (g *BuildGraph) Format(structured, write bool, thirdPartyFolder string) err
 				modRule.SetAttr("visibility", NewStringList("PUBLIC"))
 
 				for _, part := range m.Parts[:(len(m.Parts) - 1)] {
-					exportedDeps = append(exportedDeps, ":" + file.partName(part, structured))
+					exportedDeps = append(exportedDeps, ":"+file.partName(part, structured))
+				}
+			} else {
+				if structured {
+					modRule.SetAttr("visibility", NewStringList("PUBLIC"))
 				}
 			}
 
@@ -218,7 +227,7 @@ func (g *BuildGraph) Format(structured, write bool, thirdPartyFolder string) err
 	tables.IsSortableListArg["install"] = true
 	for path, f := range g.Files {
 		if write {
-			if err := os.MkdirAll(filepath.Dir(f.File.Path), os.ModeDir | 0775); err != nil {
+			if err := os.MkdirAll(filepath.Dir(f.File.Path), os.ModeDir|0775); err != nil {
 				return err
 			}
 
@@ -240,10 +249,9 @@ func (g *BuildGraph) Format(structured, write bool, thirdPartyFolder string) err
 	return nil
 }
 
-
 func NewRule(f *build.File, kind, name string) *build.Rule {
 	rule, _ := edit.ExprToRule(&build.CallExpr{
-		X: &build.Ident{Name: kind},
+		X:    &build.Ident{Name: kind},
 		List: []build.Expr{},
 	}, kind)
 
@@ -259,7 +267,7 @@ func NewStringExpr(s string) *build.StringExpr {
 
 func NewStringList(ss ...string) *build.ListExpr {
 	l := new(build.ListExpr)
-	for _, s := range ss{
+	for _, s := range ss {
 		l.List = append(l.List, NewStringExpr(s))
 	}
 	return l
