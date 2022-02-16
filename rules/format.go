@@ -59,7 +59,7 @@ func (file *BuildFile) partName(part *resolve.ModulePart, structured bool) strin
 	return name
 }
 
-func (file *BuildFile) downloadRuleName(module *resolve.Module,  structured bool) string {
+func (file *BuildFile) downloadRuleName(module *resolve.Module, structured bool) string {
 	if name, ok := file.downloadNames[module]; ok {
 		return name
 	}
@@ -101,7 +101,6 @@ func (g *BuildGraph) file(mod *resolve.Module, structured bool, thirdPartyFolder
 		return file, nil
 	}
 }
-
 
 func cannonicalise(name, modpath, thirdParty string, structured bool) string {
 	if !structured {
@@ -149,7 +148,7 @@ func (g *BuildGraph) Format(structured, write bool, thirdPartyFolder string) err
 
 			if len(m.Parts) > 1 {
 				modRule.DelAttr("version")
-				modRule.SetAttr("download", NewStringExpr(":" + file.downloadRuleName(m, structured)))
+				modRule.SetAttr("download", NewStringExpr(":"+file.downloadRuleName(m, structured)))
 			} else {
 				if m.Licence != "" {
 					modRule.SetAttr("licences", NewStringList(m.Licence))
@@ -167,7 +166,7 @@ func (g *BuildGraph) Format(structured, write bool, thirdPartyFolder string) err
 			doneInstalls := map[string]struct{}{}
 
 			for _, i := range part.InstallWildCards {
-				installs = append(installs, i + "/...")
+				installs = append(installs, i+"/...")
 			}
 
 			for pkg := range part.Packages {
@@ -181,7 +180,7 @@ func (g *BuildGraph) Format(structured, write bool, thirdPartyFolder string) err
 				}
 
 				for _, i := range pkg.Imports {
-					dep := g.Modules.Import(i)
+					dep := g.Modules.MustImport(i)
 					depRuleName := file.partName(dep, structured)
 					if _, ok := doneDeps[depRuleName]; ok || dep.Module == m {
 						continue
@@ -196,7 +195,7 @@ func (g *BuildGraph) Format(structured, write bool, thirdPartyFolder string) err
 				modRule.SetAttr("visibility", NewStringList("PUBLIC"))
 
 				for _, part := range m.Parts[:(len(m.Parts) - 1)] {
-					exportedDeps = append(exportedDeps, ":" + file.partName(part, structured))
+					exportedDeps = append(exportedDeps, ":"+file.partName(part, structured))
 				}
 			}
 
@@ -218,7 +217,7 @@ func (g *BuildGraph) Format(structured, write bool, thirdPartyFolder string) err
 	tables.IsSortableListArg["install"] = true
 	for path, f := range g.Files {
 		if write {
-			if err := os.MkdirAll(filepath.Dir(f.File.Path), os.ModeDir | 0775); err != nil {
+			if err := os.MkdirAll(filepath.Dir(f.File.Path), os.ModeDir|0775); err != nil {
 				return err
 			}
 
@@ -240,10 +239,9 @@ func (g *BuildGraph) Format(structured, write bool, thirdPartyFolder string) err
 	return nil
 }
 
-
 func NewRule(f *build.File, kind, name string) *build.Rule {
 	rule, _ := edit.ExprToRule(&build.CallExpr{
-		X: &build.Ident{Name: kind},
+		X:    &build.Ident{Name: kind},
 		List: []build.Expr{},
 	}, kind)
 
@@ -259,7 +257,7 @@ func NewStringExpr(s string) *build.StringExpr {
 
 func NewStringList(ss ...string) *build.ListExpr {
 	l := new(build.ListExpr)
-	for _, s := range ss{
+	for _, s := range ss {
 		l.List = append(l.List, NewStringExpr(s))
 	}
 	return l
