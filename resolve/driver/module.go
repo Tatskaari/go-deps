@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"golang.org/x/mod/modfile"
+	"golang.org/x/mod/module"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -108,9 +110,9 @@ func (driver *pleaseDriver) ensureDownloaded(mod *packages.Module) (srcRoot stri
 // determineVersionRequirements loads the version requirements from the go.mod files for each module, and applies
 // the minimum valid version algorithm.
 func (driver *pleaseDriver) determineVersionRequirements(mod, ver string) error {
-	if oldVer, ok := driver.moduleRequirements[mod]; ok {
+	if oldReq, ok := driver.moduleRequirements[mod]; ok {
 		// if we already require at this version or higher, we don't need to do anything
-		if semver.Compare(ver, oldVer.Version) <= 0 {
+		if semver.Compare(ver, oldReq.mod.Version) <= 0 {
 			return nil
 		}
 	}
@@ -130,10 +132,37 @@ func (driver *pleaseDriver) determineVersionRequirements(mod, ver string) error 
 		}
 	}
 
-	driver.moduleRequirements[mod] = &packages.Module{Path: mod, Version: ver}
-	for _, req := range modFile.Require {
-		if err := driver.determineVersionRequirements(req.Mod.Path, req.Mod.Version); err != nil {
+	replacements := make(map[string]*modfile.Replace)
+	for _, r := range modFile.Replace {
+
+		newPath := r.New.Path
+		newVer := r.New.Version
+
+		if newVer == "" {
+			newVer = ver
+		}
+
+		if strings.HasPrefix(newPath, ".") {
+			newPath = filepath.Join(mod, newPath)
+		}
+
+		if err := driver.determineVersionRequirements(newPath, newVer); err != nil {
 			return err
+		}
+
+		replacements[r.Old.Path] = &modfile.Replace{Old: r.Old, New: module.Version{Path: newPath, Version: newVer}}
+	}
+
+	driver.moduleRequirements[mod] = &requirement{
+		mod:          &packages.Module{Path: mod, Version: ver},
+		replacements: replacements,
+	}
+
+	for _, req := range modFile.Require {
+		if _, ok := replacements[req.Mod.Path]; !ok {
+			if err := driver.determineVersionRequirements(req.Mod.Path, req.Mod.Version); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -204,13 +233,16 @@ func (driver *pleaseDriver) loadPleaseModules() error {
 					return fmt.Errorf("invalid go_module label: %v", l)
 				}
 
-				mod := &packages.Module{Path: parts[0], Version: strings.TrimSpace(parts[1])}
-				oldMod, ok := driver.moduleRequirements[mod.Path]
+				// TODO: we probably need to recover the replace directives here somehow
+				req := &requirement{
+					mod: &packages.Module{Path: parts[0], Version: strings.TrimSpace(parts[1])},
+				}
+				oldMod, ok := driver.moduleRequirements[req.mod.Path]
 
 				// Only add the Please version of this module if it's greater than or equal to the version requirement
-				if !ok || semver.Compare(oldMod.Version, mod.Version) <= 0 {
-					driver.moduleRequirements[mod.Path] = mod
-					driver.pleaseModules[mod.Path] = rule
+				if !ok || semver.Compare(oldMod.mod.Version, req.mod.Version) <= 0 {
+					driver.moduleRequirements[req.mod.Path] = req
+					driver.pleaseModules[req.mod.Path] = rule
 				}
 			}
 		}
@@ -223,9 +255,9 @@ func (driver *pleaseDriver) loadPleaseModules() error {
 func (driver *pleaseDriver) findPackageInKnownModules(id string) string {
 	var candidate *packages.Module
 	for _, req := range driver.moduleRequirements {
-		if strings.HasPrefix(id, req.Path) {
-			if candidate == nil || len(candidate.Path) < len(req.Path) {
-				candidate = req
+		if strings.HasPrefix(id, req.mod.Path) {
+			if candidate == nil || len(candidate.Path) < len(req.mod.Path) {
+				candidate = req.mod
 			}
 		}
 	}
@@ -245,7 +277,7 @@ func (driver *pleaseDriver) findPackageInKnownModules(id string) string {
 	return ""
 }
 
-func (driver *pleaseDriver) ModuleForPackage(id string) (*packages.Module, error) {
+func (driver *pleaseDriver) ModuleForPackage(id string) (*requirement, error) {
 	module := driver.findPackageInKnownModules(id)
 	if module == "" {
 		var err error

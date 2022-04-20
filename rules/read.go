@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"golang.org/x/tools/go/packages"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,9 +54,9 @@ func newFile(path string) (*BuildFile, error) {
 		ModRules:         map[*model.ModulePart]*build.Rule{},
 		ModDownloadRules: map[*model.Module]*build.Rule{},
 
-		usedNames:        map[string]string{},
-		downloadNames:    map[*model.Module]string{},
-		partNames:        map[*model.ModulePart]string{},
+		usedNames:     map[string]string{},
+		downloadNames: map[*model.Module]string{},
+		partNames:     map[*model.ModulePart]string{},
 	}, nil
 }
 
@@ -68,12 +69,13 @@ func (g *BuildGraph) ReadRules(buildFile string) error {
 	g.Files[buildFile] = file
 	for _, rule := range file.File.Rules("go_module") {
 		moduleName := rule.AttrString("module")
-		module := g.Modules.GetModule(moduleName)
+		pkgsModule := &packages.Module{Path: moduleName}
+		module := g.Modules.GetModule(pkgsModule)
 		g.ModFiles[module] = file
 
-		pkgs := map[*model.Package]struct{}{}
+		pkgs := map[*packages.Package]struct{}{}
 		part := &model.ModulePart{
-			Module:   g.Modules.GetModule(moduleName),
+			Module:   module,
 			Packages: pkgs,
 			Index:    len(module.Parts) + 1,
 		}
@@ -98,7 +100,7 @@ func (g *BuildGraph) ReadRules(buildFile string) error {
 			importPath := filepath.Join(moduleName, i)
 
 			pkg := g.Modules.GetPackage(importPath)
-			pkg.Module = moduleName
+			pkg.Module = pkgsModule
 
 			part.Packages[pkg] = struct{}{}
 			g.Modules.ImportPaths[pkg] = part

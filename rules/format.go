@@ -2,6 +2,7 @@ package rules
 
 import (
 	"fmt"
+	"golang.org/x/tools/go/packages"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -69,8 +70,8 @@ func (file *BuildFile) downloadRuleName(module *resolve.Module, structured bool)
 	return name
 }
 
-func toInstall(pkg *resolve.Package) string {
-	install := strings.Trim(strings.TrimPrefix(pkg.ImportPath, pkg.Module), "/")
+func toInstall(pkg *packages.Package) string {
+	install := strings.Trim(strings.TrimPrefix(pkg.ID, pkg.Module.Path), "/")
 	if install == "" {
 		return "."
 	}

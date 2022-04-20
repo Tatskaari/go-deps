@@ -18,32 +18,33 @@ import (
 )
 
 type Modules struct {
-	Pkgs        map[string]*Package
+	Pkgs        map[string]*packages.Package
 	Mods        map[string]*Module
-	ImportPaths map[*Package]*ModulePart
+	ImportPaths map[*packages.Package]*ModulePart
 }
 
 type resolver struct {
 	*Modules
 	moduleCounts   map[string]int
 	rootModuleName string
-	config *packages.Config
+	config         *packages.Config
+	resolved       map[*packages.Package]struct{}
 }
 
 func newResolver(rootModuleName string, config *packages.Config) *resolver {
 	return &resolver{
 		Modules: &Modules{
-			Pkgs:        map[string]*Package{},
+			Pkgs:        map[string]*packages.Package{},
 			Mods:        map[string]*Module{},
-			ImportPaths: map[*Package]*ModulePart{},
+			ImportPaths: map[*packages.Package]*ModulePart{},
 		},
-		moduleCounts: map[string]int{},
+		moduleCounts:   map[string]int{},
 		rootModuleName: rootModuleName,
-		config: config,
+		config:         config,
 	}
 }
 
-func (r *resolver) dependsOn(done map[*Package]struct{}, pkg *Package, module *ModulePart) bool {
+func (r *resolver) dependsOn(done map[*packages.Package]struct{}, pkg *packages.Package, module *ModulePart) bool {
 	if _, ok := done[pkg]; ok {
 		return false
 	}
@@ -65,11 +66,11 @@ func (r *resolver) dependsOn(done map[*Package]struct{}, pkg *Package, module *M
 }
 
 // getOrCreateModulePart gets or create a module part that we can add this package to without causing a cycle
-func (r *resolver) getOrCreateModulePart(m *Module, pkg *Package) *ModulePart {
+func (r *resolver) getOrCreateModulePart(m *Module, pkg *packages.Package) *ModulePart {
 	var validPart *ModulePart
 	for _, part := range m.Parts {
 		valid := true
-		done := map[*Package]struct{}{}
+		done := map[*packages.Package]struct{}{}
 		for _, i := range pkg.Imports {
 			// Check all the imports that leave the current part
 			if r.Import(i) != part {
@@ -86,16 +87,16 @@ func (r *resolver) getOrCreateModulePart(m *Module, pkg *Package) *ModulePart {
 	}
 	if validPart == nil {
 		validPart = &ModulePart{
-			Packages: map[*Package]struct{}{},
-			Module: m,
-			Index: len(m.Parts) + 1,
+			Packages: map[*packages.Package]struct{}{},
+			Module:   m,
+			Index:    len(m.Parts) + 1,
 		}
 		m.Parts = append(m.Parts, validPart)
 	}
 	return validPart
 }
 
-func (r *resolver) addPackageToModuleGraph(done map[*Package]struct{}, pkg *Package) {
+func (r *resolver) addPackageToModuleGraph(done map[*packages.Package]struct{}, pkg *packages.Package) {
 	if _, ok := done[pkg]; ok {
 		return
 	}
@@ -105,10 +106,9 @@ func (r *resolver) addPackageToModuleGraph(done map[*Package]struct{}, pkg *Pack
 	}
 
 	// We don't need to add the current module to the module graph
-	if r.rootModuleName == pkg.Module {
+	if r.rootModuleName == pkg.Module.Path {
 		return
 	}
-
 
 	part := r.getOrCreateModulePart(r.GetModule(pkg.Module), pkg)
 	part.Packages[pkg] = struct{}{}
@@ -131,7 +131,7 @@ func getCurrentModuleName() string {
 	return strings.TrimSpace(string(out))
 }
 
-func (r *resolver) addPackagesToModules(done map[*Package]struct{}) {
+func (r *resolver) addPackagesToModules(done map[*packages.Package]struct{}) {
 	processed := 0
 
 	for _, pkg := range r.Pkgs {
@@ -156,13 +156,12 @@ func UpdateModules(modules *Modules, getPaths []string, goListDriver packages.Dr
 
 	r.Modules = modules
 
-	done := map[*Package]struct{}{}
+	done := map[*packages.Package]struct{}{}
 	if modules != nil {
 		for _, pkg := range modules.Pkgs {
 			done[pkg] = struct{}{}
 		}
 	}
-
 
 	r.resolve(pkgs)
 	r.addPackagesToModules(done)
@@ -179,14 +178,13 @@ func UpdateModules(modules *Modules, getPaths []string, goListDriver packages.Dr
 }
 
 func load(getPaths []string, driver packages.Driver) ([]*packages.Package, *resolver, error) {
-	progress.PrintUpdate( "Analysing packages...")
+	progress.PrintUpdate("Analysing packages...")
 
 	config := &packages.Config{
-		Mode: packages.NeedImports|packages.NeedModule|packages.NeedName|packages.NeedFiles,
+		Mode:   packages.NeedImports | packages.NeedModule | packages.NeedName | packages.NeedFiles,
 		Driver: driver,
 	}
 	r := newResolver(getCurrentModuleName(), config)
-
 
 	pkgs, err := packages.Load(config, getPaths...)
 	if err != nil {
@@ -207,14 +205,19 @@ func load(getPaths []string, driver packages.Driver) ([]*packages.Package, *reso
 	return pkgs, r, nil
 }
 
-func (r *resolver) resolveModifiedPackages(done map[*Package]struct{}) error {
+func (r *resolver) isResolved(pkg *packages.Package) bool {
+	_, ok := r.resolved[pkg]
+	return ok
+}
+
+func (r *resolver) resolveModifiedPackages(done map[*packages.Package]struct{}) error {
 	var modifiedPackages []string
 	for _, m := range r.Mods {
 		if m.IsModified() {
 			for _, part := range m.Parts {
 				for pkg := range part.Packages {
-					if !pkg.Resolved {
-						modifiedPackages = append(modifiedPackages, pkg.ImportPath)
+					if !r.isResolved(pkg) {
+						modifiedPackages = append(modifiedPackages, pkg.ID)
 					}
 				}
 			}
@@ -234,15 +237,15 @@ func (r *resolver) resolveModifiedPackages(done map[*Package]struct{}) error {
 func (r *resolver) resolve(pkgs []*packages.Package) {
 	for _, p := range pkgs {
 		if p.Module != nil {
-			r.GetModule(p.Module.Path).Version = p.Module.Version
+			r.GetModule(p.Module).Version = p.Module.Version
 		}
-		if len(p.GoFiles) + len(p.OtherFiles) == 0 {
+		if len(p.GoFiles)+len(p.OtherFiles) == 0 {
 			continue
 		}
 		pkg := r.GetPackage(p.PkgPath)
 		if p.Module == nil {
 			if strings.HasPrefix(p.PkgPath, r.rootModuleName) {
-				pkg.Module = r.rootModuleName
+				pkg.Module.Path = r.rootModuleName
 			} else {
 				var missingPkgs []string
 				for _, pkg := range pkgs {
@@ -253,7 +256,7 @@ func (r *resolver) resolve(pkgs []*packages.Package) {
 				panic(fmt.Errorf("no module found for pkgs %v", missingPkgs))
 			}
 		} else {
-			pkg.Module = p.Module.Path
+			pkg.Module = p.Module
 		}
 
 		newPackages := make([]*packages.Package, 0, len(p.Imports))
@@ -263,32 +266,32 @@ func (r *resolver) resolve(pkgs []*packages.Package) {
 			}
 			newPkg := r.GetPackage(importName)
 			if p.Module == nil {
-				panic(fmt.Sprintf("no module for %v. Perhaps you need to run go mod download?", pkg.ImportPath))
+				panic(fmt.Sprintf("no module for %v. Perhaps you need to run go mod download?", pkg.ID))
 			}
 			if importedPkg.Module == nil {
 				panic(fmt.Sprintf("no module for imported package %v. Perhaps you need to run go mod download?", importedPkg.PkgPath))
 			}
 			if importedPkg.Module.Path != p.Module.Path {
-				pkg.Imports = append(pkg.Imports, newPkg)
+				pkg.Imports[newPkg.ID] = newPkg
 			}
-			if !newPkg.Resolved {
+			if !r.isResolved(newPkg) {
 				newPackages = append(newPackages, importedPkg)
 			}
 		}
-		pkg.Resolved = true
+		r.resolved[pkg] = struct{}{}
 		r.resolve(newPackages)
 	}
 }
 
-func (mods *Modules) Import(pkg *Package) *ModulePart {
+func (mods *Modules) Import(pkg *packages.Package) *ModulePart {
 	pkgModule, ok := mods.ImportPaths[pkg]
 	if ok {
 		return pkgModule
 	}
 
-	module, ok := mods.Mods[pkg.Module]
+	module, ok := mods.Mods[pkg.Module.Path]
 	if !ok {
-		panic(fmt.Errorf("no import path for pkg %v", pkg.ImportPath))
+		panic(fmt.Errorf("no import path for pkg %v", pkg.ID))
 	}
 	for _, part := range module.Parts {
 		if part.IsWildcardImport(pkg) {
@@ -296,26 +299,27 @@ func (mods *Modules) Import(pkg *Package) *ModulePart {
 			return part
 		}
 	}
-	panic(fmt.Errorf("no import path for pkg %v", pkg.ImportPath))
+	panic(fmt.Errorf("no import path for pkg %v", pkg.ID))
 }
 
 // GetPackage gets an existing package or creates a new one
-func (mods *Modules) GetPackage(path string) *Package {
+func (mods *Modules) GetPackage(path string) *packages.Package {
 	if pkg, ok := mods.Pkgs[path]; ok {
 		return pkg
 	}
-	pkg := &Package{ImportPath: path, Imports: []*Package{}}
+	pkg := &packages.Package{ID: path, Imports: map[string]*packages.Package{}}
 	mods.Pkgs[path] = pkg
 	return pkg
 }
 
-func (mods *Modules) GetModule(path string) *Module {
-	m, ok := mods.Mods[path]
+func (mods *Modules) GetModule(mod *packages.Module) *Module {
+	// TODO(jpoole): handle replace
+	m, ok := mods.Mods[mod.Path]
 	if !ok {
 		m = &Module{
-			Name: path,
+			Name: mod.Path,
 		}
-		mods.Mods[path] = m
+		mods.Mods[mod.Path] = m
 	}
 	return m
 }
@@ -328,7 +332,7 @@ func (r *resolver) setLicence(pkgs []*packages.Package) (err error) {
 		if err != nil {
 			return
 		}
-		if _, ok := r.Pkgs[p.PkgPath]; !ok  {
+		if _, ok := r.Pkgs[p.PkgPath]; !ok {
 			return
 		}
 		var m *Module
@@ -350,7 +354,6 @@ func (r *resolver) setLicence(pkgs []*packages.Package) (err error) {
 
 		done++
 		progress.PrintUpdate("Adding licenses... %d of %d modules.", done, len(r.Mods))
-
 
 		var pkgDir string
 		switch {
