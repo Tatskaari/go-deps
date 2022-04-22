@@ -18,7 +18,9 @@ var opts struct {
 	ThirdPartyFolder string `long:"third_party" default:"third_party/go" description:"The location of the folder containing your third party build rules."`
 	Structured       bool   `long:"structured" short:"s" description:"Whether to produce a structured directory tree for each module. Defaults to a flat BUILD file for all third party rules."`
 	Write            bool   `long:"write" short:"w" description:"Whether write the rules back to the BUILD files. Prints to stdout by default."`
-	PleasePath       string `long:"please_path" default:"plz" description:"The path to the Please binary."`
+	PleaseTool       string `long:"please_tool" default:"plz" description:"The path to the Please binary."`
+	GoTool           string `long:"go_tool" default:"plz" description:"The path to the Please binary."`
+	BuildFileName    string `long:"build_file_name" default:"BUILD" description:"The filename to use for BUILD files. Defaults to BUILD."`
 	Args             struct {
 		Packages []string `positional-arg-name:"packages" description:"Packages to install following 'go get' style patters. These can optionally have versions e.g. github.com/example/module/...@v1.0.0"`
 	} `positional-args:"true"`
@@ -28,22 +30,21 @@ var opts struct {
 func main() {
 	parser := flags.NewParser(&opts, flags.HelpFlag|flags.PassDoubleDash)
 	if _, err := parser.Parse(); err != nil {
-		fmt.Fprintf(os.Stderr, "Godeps is a developer productivity tool for the Please build system.\n" +
-			"It can add and updates third party modules to your project through \nan interface that should feel familiar to those used to `go get`.\n\n" +
-			"Example usage: \n" +
+		fmt.Fprintf(os.Stderr, "Godeps is a developer productivity tool for the Please build system.\n"+
+			"It can add and updates third party modules to your project through \nan interface that should feel familiar to those used to `go get`.\n\n"+
+			"Example usage: \n"+
 			"  go-deps -w github.com/example/module/...@v1.0.0\n\n")
 		fmt.Fprintf(os.Stderr, "%v", err)
 		os.Exit(1)
 	}
 
-	// TODO(jpoole): load the BuildFileName from the .plzconfig
-	moduleGraph := rules.NewGraph()
+	moduleGraph := rules.NewGraph(opts.BuildFileName)
 	if opts.Structured {
 		err := filepath.Walk(opts.ThirdPartyFolder, func(path string, info fs.FileInfo, err error) error {
 			if info.IsDir() {
 				return nil
 			}
-			if filepath.Base(path) == "BUILD" {
+			if filepath.Base(path) == opts.BuildFileName {
 				if err := moduleGraph.ReadRules(path); err != nil {
 					return err
 				}
@@ -54,12 +55,12 @@ func main() {
 			log.Fatal(err)
 		}
 	} else {
-		if err := moduleGraph.ReadRules(filepath.Join(opts.ThirdPartyFolder, "BUILD")); err != nil {
+		if err := moduleGraph.ReadRules(filepath.Join(opts.ThirdPartyFolder, opts.BuildFileName)); err != nil {
 			log.Fatal(err)
 		}
 	}
 
-	err := resolve.UpdateModules(moduleGraph.Modules, opts.Args.Packages, driver.NewPleaseDriver(opts.PleasePath, opts.ThirdPartyFolder))
+	err := resolve.UpdateModules(opts.GoTool, moduleGraph.Modules, opts.Args.Packages, driver.NewPleaseDriver(opts.PleaseTool, opts.GoTool, opts.ThirdPartyFolder))
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -83,9 +83,9 @@ func toInstall(pkg *packages.Package) string {
 func (g *BuildGraph) file(mod *resolve.Module, structured bool, thirdPartyFolder string) (*BuildFile, error) {
 	path := ""
 	if structured {
-		path = filepath.Join(thirdPartyFolder, mod.Name, "BUILD")
+		path = filepath.Join(thirdPartyFolder, mod.Name, g.BuildFileName)
 	} else {
-		path = filepath.Join(thirdPartyFolder, "BUILD")
+		path = filepath.Join(thirdPartyFolder, g.BuildFileName)
 	}
 
 	if f, ok := g.Files[path]; ok {

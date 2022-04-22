@@ -30,9 +30,11 @@ type requirement struct {
 type pleaseDriver struct {
 	proxy              *proxy.Proxy
 	thirdPartyFolder   string
-	pleasePath         string
 	moduleRequirements map[string]*requirement
 	pleaseModules      map[string]*goModDownloadRule
+
+	goTool     string
+	pleaseTool string
 
 	packages map[string]*packages.Package
 
@@ -46,7 +48,7 @@ type packageInfo struct {
 	isSDKPackage    bool
 }
 
-func NewPleaseDriver(please, thirdPartyFolder string) *pleaseDriver {
+func NewPleaseDriver(please, goTool, thirdPartyFolder string) *pleaseDriver {
 	//TODO(jpoole): split this on , and get rid of direct
 	proxyURL := os.Getenv("GOPROXY")
 	if proxyURL == "" {
@@ -54,7 +56,8 @@ func NewPleaseDriver(please, thirdPartyFolder string) *pleaseDriver {
 	}
 
 	return &pleaseDriver{
-		pleasePath:       please,
+		pleaseTool:       please,
+		goTool:           goTool,
 		thirdPartyFolder: thirdPartyFolder,
 		proxy:            proxy.New(proxyURL),
 		downloaded:       map[string]string{},

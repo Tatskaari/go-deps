@@ -126,8 +126,8 @@ func (r *resolver) addPackageToModuleGraph(done map[*packages.Package]struct{}, 
 	done[pkg] = struct{}{}
 }
 
-func getCurrentModuleName() string {
-	cmd := exec.Command("go", "list", "-m")
+func getCurrentModuleName(goTool string) string {
+	cmd := exec.Command(goTool, "list", "-m")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "WARNING: failed to get the current modules name: %v\n", err)
@@ -147,10 +147,10 @@ func (r *resolver) addPackagesToModules(done map[*packages.Package]struct{}) {
 }
 
 // UpdateModules resolves a `go get` style wildcard and updates the modules passed in to it
-func UpdateModules(modules *Modules, getPaths []string, goListDriver packages.Driver) error {
+func UpdateModules(goTool string, modules *Modules, getPaths []string, goListDriver packages.Driver) error {
 	defer progress.Clear()
 
-	pkgs, r, err := load(getPaths, goListDriver)
+	pkgs, r, err := load(goTool, getPaths, goListDriver)
 	if err != nil {
 		return err
 	}
@@ -182,14 +182,14 @@ func UpdateModules(modules *Modules, getPaths []string, goListDriver packages.Dr
 	return nil
 }
 
-func load(getPaths []string, driver packages.Driver) ([]*packages.Package, *resolver, error) {
+func load(goTool string, getPaths []string, driver packages.Driver) ([]*packages.Package, *resolver, error) {
 	progress.PrintUpdate("Analysing packages...")
 
 	config := &packages.Config{
 		Mode:   packages.NeedImports | packages.NeedModule | packages.NeedName | packages.NeedFiles,
 		Driver: driver,
 	}
-	r := newResolver(getCurrentModuleName(), config)
+	r := newResolver(getCurrentModuleName(goTool), config)
 
 	pkgs, err := packages.Load(config, getPaths...)
 	if err != nil {

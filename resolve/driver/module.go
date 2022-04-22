@@ -38,7 +38,7 @@ func (driver *pleaseDriver) ensureDownloaded(mod *packages.Module) (srcRoot stri
 		if target.built {
 			return target.srcRoot, nil
 		}
-		cmd := exec.Command(driver.pleasePath, "build", target.label)
+		cmd := exec.Command(driver.pleaseTool, "build", target.label)
 		progress.PrintUpdate("Building %s...", target.label)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -52,7 +52,7 @@ func (driver *pleaseDriver) ensureDownloaded(mod *packages.Module) (srcRoot stri
 	// Create a dummy go.mod to avoid us accidentally updating the main repo
 	if _, err := os.Lstat("plz-out/godeps/go.mod"); err != nil {
 		if os.IsNotExist(err) {
-			cmd := exec.Command("go", "mod", "init", "dummy")
+			cmd := exec.Command(driver.goTool, "mod", "init", "dummy")
 			cmd.Dir = "plz-out/godeps"
 			out, err := cmd.CombinedOutput()
 			if err != nil {
@@ -77,7 +77,7 @@ func (driver *pleaseDriver) ensureDownloaded(mod *packages.Module) (srcRoot stri
 	}
 
 	// Downlaod using `go mod download`
-	cmd := exec.Command("go", "mod", "download", "--json", key)
+	cmd := exec.Command(driver.goTool, "mod", "download", "--json", key)
 	if goroot := os.Getenv("GOROOT"); goroot != "" {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("GOROOT=%s", goroot))
 	}
@@ -204,7 +204,7 @@ func (driver *pleaseDriver) resolveGetModules(patterns []string) ([]string, erro
 func (driver *pleaseDriver) loadPleaseModules() error {
 	out := &bytes.Buffer{}
 	stdErr := &bytes.Buffer{}
-	cmd := exec.Command(driver.pleasePath, "query", "print", "-i", "go_module", "--json", fmt.Sprintf("//%s/...", driver.thirdPartyFolder))
+	cmd := exec.Command(driver.pleaseTool, "query", "print", "-i", "go_module", "--json", fmt.Sprintf("//%s/...", driver.thirdPartyFolder))
 	cmd.Stdout = out
 	cmd.Stderr = stdErr
 	err := cmd.Run()

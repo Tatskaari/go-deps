@@ -17,6 +17,8 @@ type BuildGraph struct {
 
 	ModFiles map[*model.Module]*BuildFile
 	Files    map[string]*BuildFile
+
+	BuildFileName string
 }
 
 type BuildFile struct {
@@ -29,15 +31,16 @@ type BuildFile struct {
 	downloadNames map[*model.Module]string
 }
 
-func NewGraph() *BuildGraph {
+func NewGraph(buildFileName string) *BuildGraph {
 	return &BuildGraph{
 		Modules: &resolve.Modules{
 			Pkgs:        map[string]*packages.Package{},
 			Mods:        map[resolve.ModuleKey]*model.Module{},
 			ImportPaths: map[*packages.Package]*model.ModulePart{},
 		},
-		ModFiles: map[*model.Module]*BuildFile{},
-		Files:    map[string]*BuildFile{},
+		ModFiles:      map[*model.Module]*BuildFile{},
+		Files:         map[string]*BuildFile{},
+		BuildFileName: buildFileName,
 	}
 }
 
