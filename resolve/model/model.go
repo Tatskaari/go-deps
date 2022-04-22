@@ -1,32 +1,20 @@
 package model
 
 import (
+	"golang.org/x/tools/go/packages"
 	"path/filepath"
 	"strings"
 )
 
-// Package represents a single package in some module
-type Package struct {
-	// The full import path of this package
-	ImportPath string
-
-	// The module name this package belongs to
-	Module string
-
-	// Any other packages this package imports
-	Imports []*Package
-
-	Resolved bool
-}
-
-
 // Module represents a module. It includes all deps so actually represents a full module graph.
 type Module struct {
 	// The module name
-	Name string
-	Version string
-	Licence string
+	Name       string
+	ReplacedBy string
+	Version    string
+	Licence    string
 
+	// TODO(jpoole): Store these on the resolver and use packages.Module instead of this struct
 	Parts []*ModulePart
 }
 
@@ -48,21 +36,21 @@ type ModulePart struct {
 	InstallWildCards []string
 
 	// The packages in this module
-	Packages map[*Package]struct{}
+	Packages map[*packages.Package]struct{}
 	// The index of this module part
 	Index int
 
 	Modified bool
 }
 
-func (p *ModulePart) IsWildcardImport(pkg *Package) bool {
+func (p *ModulePart) IsWildcardImport(pkg *packages.Package) bool {
 	return p.GetWildcardImport(pkg) != ""
 }
 
-func (p *ModulePart) GetWildcardImport(pkg *Package) string {
+func (p *ModulePart) GetWildcardImport(pkg *packages.Package) string {
 	for _, i := range p.InstallWildCards {
-		wildCardPath := filepath.Join(pkg.Module, i)
-		if strings.HasPrefix(pkg.ImportPath, wildCardPath){
+		wildCardPath := filepath.Join(pkg.Module.Path, i)
+		if strings.HasPrefix(pkg.ID, wildCardPath) {
 			return filepath.Join(i, "...")
 		}
 	}

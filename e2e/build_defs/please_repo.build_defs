@@ -1,0 +1,41 @@
+def please_repo_e2e_test(
+        name: str,
+        plz_command: str,
+        repo: str,
+        data: dict={},
+        deps: list=[],
+        tools: dict={},
+        expected_failure: bool = False,
+        labels: list = [],
+):
+    plz_command = plz_command.replace("plz ", "$TOOLS_PLEASE ")
+    if expected_failure:
+        plz_command += "; [ ! $? -eq 0 ]"
+
+    test_cmd = [
+        "mv $DATA_BASE_CONFIG $DATA_REPO",
+        "cd $DATA_REPO",
+        plz_command,
+    ]
+
+    test_cmd = ' && '.join(test_cmd)
+
+    data["REPO"] = [repo]
+    data["BASE_CONFIG"] = ["//e2e/build_defs:base_config"]
+
+    tools["PLEASE"] = ["//e2e/build_defs:please"]
+
+
+    return gentest(
+        name = name,
+        test_cmd = test_cmd,
+        test_tools = tools,
+        data = data,
+        deps = deps,
+        env = {
+            "PLZ_CONFIG_PROFILE": "e2e",
+        },
+        no_test_output = True,
+        labels = labels + ["plz_e2e_test", "e2e"],
+        sandbox = False,
+    )

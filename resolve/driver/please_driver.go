@@ -5,6 +5,8 @@ import (
 	"github.com/tatskaari/go-deps/progress"
 	"github.com/tatskaari/go-deps/resolve/driver/proxy"
 	"go/build"
+	"golang.org/x/mod/modfile"
+	"golang.org/x/mod/module"
 	"io/fs"
 	"net/http"
 	"os"
@@ -20,12 +22,19 @@ const dirPerms = os.ModeDir | 0775
 
 var client = http.DefaultClient
 
+type requirement struct {
+	mod          *packages.Module
+	replacements map[string]*modfile.Replace
+}
+
 type pleaseDriver struct {
 	proxy              *proxy.Proxy
 	thirdPartyFolder   string
-	pleasePath         string
-	moduleRequirements map[string]*packages.Module
+	moduleRequirements map[string]*requirement
 	pleaseModules      map[string]*goModDownloadRule
+
+	goTool     string
+	pleaseTool string
 
 	packages map[string]*packages.Package
 
@@ -35,11 +44,11 @@ type pleaseDriver struct {
 type packageInfo struct {
 	id              string
 	srcRoot, pkgDir string
-	mod             *packages.Module
+	mod             *requirement
 	isSDKPackage    bool
 }
 
-func NewPleaseDriver(please, thirdPartyFolder string) *pleaseDriver {
+func NewPleaseDriver(please, goTool, thirdPartyFolder string) *pleaseDriver {
 	//TODO(jpoole): split this on , and get rid of direct
 	proxyURL := os.Getenv("GOPROXY")
 	if proxyURL == "" {
@@ -47,7 +56,8 @@ func NewPleaseDriver(please, thirdPartyFolder string) *pleaseDriver {
 	}
 
 	return &pleaseDriver{
-		pleasePath:       please,
+		pleaseTool:       please,
+		goTool:           goTool,
 		thirdPartyFolder: thirdPartyFolder,
 		proxy:            proxy.New(proxyURL),
 		downloaded:       map[string]string{},
@@ -55,10 +65,14 @@ func NewPleaseDriver(please, thirdPartyFolder string) *pleaseDriver {
 	}
 }
 
-func (driver *pleaseDriver) pkgInfo(id string) (*packageInfo, error) {
+func (driver *pleaseDriver) pkgInfo(from *requirement, id string) (*packageInfo, error) {
 	if knownimports.IsInGoRoot(id) {
 		srcDir := filepath.Join(build.Default.GOROOT, "src")
 		return &packageInfo{isSDKPackage: true, id: id, srcRoot: srcDir, pkgDir: filepath.Join(srcDir, id)}, nil
+	}
+
+	if info, err := driver.checkReplace(from, id); info != nil || err != nil {
+		return info, err
 	}
 
 	mod, err := driver.ModuleForPackage(id)
@@ -66,12 +80,12 @@ func (driver *pleaseDriver) pkgInfo(id string) (*packageInfo, error) {
 		return nil, fmt.Errorf("no module requirement for %v", err)
 	}
 
-	srcRoot, err := driver.ensureDownloaded(mod)
+	srcRoot, err := driver.ensureDownloaded(mod.mod)
 	if err != nil {
 		return nil, err
 	}
 
-	pkgDir := strings.TrimPrefix(id, mod.Path)
+	pkgDir := strings.TrimPrefix(id, mod.mod.Path)
 	return &packageInfo{
 		id:      id,
 		srcRoot: srcRoot,
@@ -80,11 +94,60 @@ func (driver *pleaseDriver) pkgInfo(id string) (*packageInfo, error) {
 	}, nil
 }
 
+func (driver *pleaseDriver) checkReplace(from *requirement, id string) (*packageInfo, error) {
+	if from == nil {
+		return nil, nil
+	}
+
+	check := func(req *modfile.Replace) (*packageInfo, error) {
+		if strings.HasPrefix(id, req.Old.Path) {
+			ver := req.New
+
+			mod := driver.moduleRequirements[ver.Path]
+
+			srcRoot, err := driver.ensureDownloaded(mod.mod)
+			if err != nil {
+				return nil, err
+			}
+			pkgDir := filepath.Join(srcRoot, strings.TrimPrefix(id, req.Old.Path))
+			if _, err := os.Stat(pkgDir); err == nil {
+				old := &requirement{mod: &packages.Module{Path: req.Old.Path, Version: req.Old.Version, Replace: mod.mod}}
+
+				return &packageInfo{
+					id:      id,
+					srcRoot: srcRoot,
+					pkgDir:  pkgDir,
+					mod:     old,
+				}, nil
+			}
+		}
+		return nil, nil
+	}
+
+	if from.mod.Replace != nil {
+		replace := &modfile.Replace{
+			Old: module.Version{Path: from.mod.Path, Version: from.mod.Version},
+			New: module.Version{Path: from.mod.Replace.Path, Version: from.mod.Replace.Version},
+		}
+
+		if info, err := check(replace); info != nil || err != nil {
+			return info, err
+		}
+	}
+
+	for _, req := range from.replacements {
+		if info, err := check(req); info != nil || err != nil {
+			return info, err
+		}
+	}
+	return nil, nil
+}
+
 // loadPattern will load a package wildcard into driver.packages, walking the directory tree if necessary
 func (driver *pleaseDriver) loadPattern(pattern string) ([]string, error) {
 	walk := strings.HasSuffix(pattern, "...")
 
-	info, err := driver.pkgInfo(strings.TrimSuffix(pattern, "/..."))
+	info, err := driver.pkgInfo(nil, strings.TrimSuffix(pattern, "/..."))
 	if err != nil {
 		return nil, err
 	}
@@ -104,8 +167,8 @@ func (driver *pleaseDriver) loadPattern(pattern string) ([]string, error) {
 				return fs.SkipDir
 			}
 
-			id := filepath.Join(info.mod.Path, strings.TrimPrefix(path, info.srcRoot))
-			info, err := driver.pkgInfo(strings.TrimSuffix(id, "/..."))
+			id := filepath.Join(info.mod.mod.Path, strings.TrimPrefix(path, info.srcRoot))
+			info, err := driver.pkgInfo(nil, strings.TrimSuffix(id, "/..."))
 			if err != nil {
 				return err
 			}
@@ -152,7 +215,7 @@ func (driver *pleaseDriver) loadPackage(info *packageInfo) error {
 			return nil
 		}
 		imports[i] = &packages.Package{ID: i}
-		newInfo, err := driver.pkgInfo(i)
+		newInfo, err := driver.pkgInfo(info.mod, i)
 		if err != nil {
 			return fmt.Errorf("%v from %v from %v", err, i, info.id)
 		}
@@ -172,14 +235,14 @@ func (driver *pleaseDriver) loadPackage(info *packageInfo) error {
 		PkgPath: info.id,
 		GoFiles: goFiles,
 		Imports: imports,
-		Module:  info.mod,
+		Module:  info.mod.mod,
 	}
 	return nil
 }
 
 func (driver *pleaseDriver) Resolve(cfg *packages.Config, patterns ...string) (*packages.DriverResponse, error) {
 	driver.packages = map[string]*packages.Package{}
-	driver.moduleRequirements = map[string]*packages.Module{}
+	driver.moduleRequirements = map[string]*requirement{}
 
 	if err := os.MkdirAll("plz-out/godeps", dirPerms); err != nil && !os.IsExist(err) {
 		return nil, err

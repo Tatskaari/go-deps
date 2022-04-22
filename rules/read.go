@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"golang.org/x/tools/go/packages"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,8 @@ type BuildGraph struct {
 
 	ModFiles map[*model.Module]*BuildFile
 	Files    map[string]*BuildFile
+
+	BuildFileName string
 }
 
 type BuildFile struct {
@@ -28,15 +31,16 @@ type BuildFile struct {
 	downloadNames map[*model.Module]string
 }
 
-func NewGraph() *BuildGraph {
+func NewGraph(buildFileName string) *BuildGraph {
 	return &BuildGraph{
 		Modules: &resolve.Modules{
-			Pkgs:        map[string]*model.Package{},
-			Mods:        map[string]*model.Module{},
-			ImportPaths: map[*model.Package]*model.ModulePart{},
+			Pkgs:        map[string]*packages.Package{},
+			Mods:        map[resolve.ModuleKey]*model.Module{},
+			ImportPaths: map[*packages.Package]*model.ModulePart{},
 		},
-		ModFiles: map[*model.Module]*BuildFile{},
-		Files:    map[string]*BuildFile{},
+		ModFiles:      map[*model.Module]*BuildFile{},
+		Files:         map[string]*BuildFile{},
+		BuildFileName: buildFileName,
 	}
 }
 
@@ -53,9 +57,9 @@ func newFile(path string) (*BuildFile, error) {
 		ModRules:         map[*model.ModulePart]*build.Rule{},
 		ModDownloadRules: map[*model.Module]*build.Rule{},
 
-		usedNames:        map[string]string{},
-		downloadNames:    map[*model.Module]string{},
-		partNames:        map[*model.ModulePart]string{},
+		usedNames:     map[string]string{},
+		downloadNames: map[*model.Module]string{},
+		partNames:     map[*model.ModulePart]string{},
 	}, nil
 }
 
@@ -68,12 +72,13 @@ func (g *BuildGraph) ReadRules(buildFile string) error {
 	g.Files[buildFile] = file
 	for _, rule := range file.File.Rules("go_module") {
 		moduleName := rule.AttrString("module")
-		module := g.Modules.GetModule(moduleName)
+
+		module := g.Modules.GetModule(resolve.ModuleKey{Path: moduleName})
 		g.ModFiles[module] = file
 
-		pkgs := map[*model.Package]struct{}{}
+		pkgs := map[*packages.Package]struct{}{}
 		part := &model.ModulePart{
-			Module:   g.Modules.GetModule(moduleName),
+			Module:   module,
 			Packages: pkgs,
 			Index:    len(module.Parts) + 1,
 		}
@@ -98,7 +103,7 @@ func (g *BuildGraph) ReadRules(buildFile string) error {
 			importPath := filepath.Join(moduleName, i)
 
 			pkg := g.Modules.GetPackage(importPath)
-			pkg.Module = moduleName
+			pkg.Module = &packages.Module{Path: module.Name}
 
 			part.Packages[pkg] = struct{}{}
 			g.Modules.ImportPaths[pkg] = part
@@ -109,7 +114,7 @@ func (g *BuildGraph) ReadRules(buildFile string) error {
 
 	for _, rule := range file.File.Rules("go_mod_download") {
 		moduleName := rule.AttrString("module")
-		module := g.Modules.GetModule(moduleName)
+		module := g.Modules.GetModule(resolve.ModuleKey{Path: moduleName})
 		file.ModDownloadRules[module] = rule
 
 		file.usedNames[rule.Name()] = moduleName

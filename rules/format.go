@@ -2,6 +2,7 @@ package rules
 
 import (
 	"fmt"
+	"golang.org/x/tools/go/packages"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -21,9 +22,12 @@ func split(path string) (string, string) {
 	return filepath.Clean(dir), base
 }
 
-func (file *BuildFile) assignName(originalPath, suffix string, structured bool) string {
-	path, base := split(originalPath)
+func (file *BuildFile) assignName(mod *resolve.Module, suffix string, structured bool) string {
+	path, base := split(mod.Name)
 	name := base + suffix
+	if mod.ReplacedBy != "" {
+		name = base + "_replace" + suffix
+	}
 	if !structured && semverRegex.MatchString(name) {
 		path, base = split(path)
 		name = base + "." + name
@@ -34,13 +38,13 @@ func (file *BuildFile) assignName(originalPath, suffix string, structured bool) 
 		if !ok {
 			break
 		}
-		if extantPath == originalPath {
+		if extantPath == mod.Name {
 			return name
 		}
 		path, base = split(path)
 		name = base + "." + name
 	}
-	file.usedNames[name] = originalPath
+	file.usedNames[name] = mod.Name
 	return name
 }
 
@@ -54,7 +58,7 @@ func (file *BuildFile) partName(part *resolve.ModulePart, structured bool) strin
 		suffix = fmt.Sprintf("_%d", displayIndex)
 	}
 
-	name := file.assignName(part.Module.Name, suffix, structured)
+	name := file.assignName(part.Module, suffix, structured)
 	file.partNames[part] = name
 	return name
 }
@@ -63,14 +67,13 @@ func (file *BuildFile) downloadRuleName(module *resolve.Module, structured bool)
 	if name, ok := file.downloadNames[module]; ok {
 		return name
 	}
-
-	name := file.assignName(module.Name, "_dl", structured)
+	name := file.assignName(module, "_dl", structured)
 	file.downloadNames[module] = name
 	return name
 }
 
-func toInstall(pkg *resolve.Package) string {
-	install := strings.Trim(strings.TrimPrefix(pkg.ImportPath, pkg.Module), "/")
+func toInstall(pkg *packages.Package) string {
+	install := strings.Trim(strings.TrimPrefix(pkg.ID, pkg.Module.Path), "/")
 	if install == "" {
 		return "."
 	}
@@ -80,9 +83,9 @@ func toInstall(pkg *resolve.Package) string {
 func (g *BuildGraph) file(mod *resolve.Module, structured bool, thirdPartyFolder string) (*BuildFile, error) {
 	path := ""
 	if structured {
-		path = filepath.Join(thirdPartyFolder, mod.Name, "BUILD")
+		path = filepath.Join(thirdPartyFolder, mod.Name, g.BuildFileName)
 	} else {
-		path = filepath.Join(thirdPartyFolder, "BUILD")
+		path = filepath.Join(thirdPartyFolder, g.BuildFileName)
 	}
 
 	if f, ok := g.Files[path]; ok {
@@ -117,14 +120,20 @@ func (g *BuildGraph) Format(structured, write bool, thirdPartyFolder string) err
 			return err
 		}
 		dlRule, ok := file.ModDownloadRules[m]
-		if len(m.Parts) > 1 {
+		if len(m.Parts) > 1 || m.ReplacedBy != "" {
 			if !ok {
 				dlRule = NewRule(file.File, "go_mod_download", file.downloadRuleName(m, structured))
 				file.ModDownloadRules[m] = dlRule
 			}
-			dlRule.SetAttr("module", NewStringExpr(m.Name))
+			name := m.Name
+			version := m.Version
+			if m.ReplacedBy != "" {
+				name = m.ReplacedBy
+			}
+
+			dlRule.SetAttr("module", NewStringExpr(name))
 			if m.Version != "" {
-				dlRule.SetAttr("version", NewStringExpr(m.Version))
+				dlRule.SetAttr("version", NewStringExpr(version))
 			}
 			if m.Licence != "" {
 				dlRule.SetAttr("licences", NewStringList(m.Licence))
@@ -147,7 +156,7 @@ func (g *BuildGraph) Format(structured, write bool, thirdPartyFolder string) err
 
 			modRule.SetAttr("module", NewStringExpr(m.Name))
 
-			if len(m.Parts) > 1 {
+			if dlRule != nil {
 				modRule.DelAttr("version")
 				modRule.SetAttr("download", NewStringExpr(":"+file.downloadRuleName(m, structured)))
 			} else {
