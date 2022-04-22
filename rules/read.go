@@ -32,9 +32,9 @@ type BuildFile struct {
 func NewGraph() *BuildGraph {
 	return &BuildGraph{
 		Modules: &resolve.Modules{
-			Pkgs:        map[string]*model.Package{},
+			Pkgs:        map[string]*packages.Package{},
 			Mods:        map[string]*model.Module{},
-			ImportPaths: map[*model.Package]*model.ModulePart{},
+			ImportPaths: map[*packages.Package]*model.ModulePart{},
 		},
 		ModFiles: map[*model.Module]*BuildFile{},
 		Files:    map[string]*BuildFile{},
@@ -111,7 +111,7 @@ func (g *BuildGraph) ReadRules(buildFile string) error {
 
 	for _, rule := range file.File.Rules("go_mod_download") {
 		moduleName := rule.AttrString("module")
-		module := g.Modules.GetModule(moduleName)
+		module := g.Modules.GetModule(&packages.Module{Path: moduleName})
 		file.ModDownloadRules[module] = rule
 
 		file.usedNames[rule.Name()] = moduleName

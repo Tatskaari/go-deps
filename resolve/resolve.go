@@ -41,6 +41,7 @@ func newResolver(rootModuleName string, config *packages.Config) *resolver {
 		moduleCounts:   map[string]int{},
 		rootModuleName: rootModuleName,
 		config:         config,
+		resolved:       map[*packages.Package]struct{}{},
 	}
 }
 
