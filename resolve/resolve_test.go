@@ -49,17 +49,17 @@ func TestDependsOn(t *testing.T) {
 func TestResolvesCycle(t *testing.T) {
 	// This package structure is a simplified form of the google.golang.com/go module
 	ps := map[string][]string{
-		"google.golang.org/grpc/codes": {},
-		"google.golang.org/grpc": {},
-		"google.golang.org/grpc/status": {},
-		"google.golang.org/grpc/metadata": {},
-		"golang.org/x/oauth2": {},
-		"cloud.google.com/go/compute/metadata": {},
-		"golang.org/x/oauth2/google": {"cloud.google.com/go/compute/metadata"},
-		"golang.org/x/oauth2/jwt": {},
+		"google.golang.org/grpc/codes":             {},
+		"google.golang.org/grpc":                   {},
+		"google.golang.org/grpc/status":            {},
+		"google.golang.org/grpc/metadata":          {},
+		"golang.org/x/oauth2":                      {},
+		"cloud.google.com/go/compute/metadata":     {},
+		"golang.org/x/oauth2/google":               {"cloud.google.com/go/compute/metadata"},
+		"golang.org/x/oauth2/jwt":                  {},
 		"google.golang.org/grpc/credentials/oauth": {"golang.org/x/oauth2", "golang.org/x/oauth2/google", "golang.org/x/oauth2/jwt"},
-		"github.com/googleapis/gax-go/v2": {"google.golang.org/grpc/codes", "google.golang.org/grpc/status", "google.golang.org/grpc"},
-		"cloud.google.com/go/talent/apiv4beta1": {"google.golang.org/grpc/codes", "github.com/googleapis/gax-go/v2", "google.golang.org/grpc", "google.golang.org/grpc/metadata"},
+		"github.com/googleapis/gax-go/v2":          {"google.golang.org/grpc/codes", "google.golang.org/grpc/status", "google.golang.org/grpc"},
+		"cloud.google.com/go/talent/apiv4beta1":    {"google.golang.org/grpc/codes", "github.com/googleapis/gax-go/v2", "google.golang.org/grpc", "google.golang.org/grpc/metadata"},
 	}
 
 	r := newResolver(".", nil)
@@ -92,7 +92,7 @@ func TestResolvesCycle(t *testing.T) {
 
 	// TODO(jpoole): Make the generated module graph deterministic so we don't have to have a complicated assertion here
 	for _, part := range module.Parts {
-		deps := map[*ModulePart] struct{}{}
+		deps := map[*ModulePart]struct{}{}
 		findModuleDeps(r, part, part, deps)
 
 		_, hasSelfDep := deps[part]
@@ -101,7 +101,7 @@ func TestResolvesCycle(t *testing.T) {
 }
 
 // findModuleDeps will return all the module parts (i.e. the go_module()) rules a module part depends on
-func findModuleDeps(r *resolver, from *ModulePart, currentPart *ModulePart, parts map[*ModulePart] struct{}) {
+func findModuleDeps(r *resolver, from *ModulePart, currentPart *ModulePart, parts map[*ModulePart]struct{}) {
 	for pkg := range currentPart.Packages {
 		for _, i := range pkg.Imports {
 			mod := r.ImportPaths[i]

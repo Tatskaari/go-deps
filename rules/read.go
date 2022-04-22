@@ -33,7 +33,7 @@ func NewGraph() *BuildGraph {
 	return &BuildGraph{
 		Modules: &resolve.Modules{
 			Pkgs:        map[string]*packages.Package{},
-			Mods:        map[string]*model.Module{},
+			Mods:        map[resolve.ModuleKey]*model.Module{},
 			ImportPaths: map[*packages.Package]*model.ModulePart{},
 		},
 		ModFiles: map[*model.Module]*BuildFile{},
@@ -69,8 +69,8 @@ func (g *BuildGraph) ReadRules(buildFile string) error {
 	g.Files[buildFile] = file
 	for _, rule := range file.File.Rules("go_module") {
 		moduleName := rule.AttrString("module")
-		pkgsModule := &packages.Module{Path: moduleName}
-		module := g.Modules.GetModule(pkgsModule)
+
+		module := g.Modules.GetModule(resolve.ModuleKey{Path: moduleName})
 		g.ModFiles[module] = file
 
 		pkgs := map[*packages.Package]struct{}{}
@@ -100,7 +100,7 @@ func (g *BuildGraph) ReadRules(buildFile string) error {
 			importPath := filepath.Join(moduleName, i)
 
 			pkg := g.Modules.GetPackage(importPath)
-			pkg.Module = pkgsModule
+			pkg.Module = &packages.Module{Path: module.Name}
 
 			part.Packages[pkg] = struct{}{}
 			g.Modules.ImportPaths[pkg] = part
@@ -111,7 +111,7 @@ func (g *BuildGraph) ReadRules(buildFile string) error {
 
 	for _, rule := range file.File.Rules("go_mod_download") {
 		moduleName := rule.AttrString("module")
-		module := g.Modules.GetModule(&packages.Module{Path: moduleName})
+		module := g.Modules.GetModule(resolve.ModuleKey{Path: moduleName})
 		file.ModDownloadRules[module] = rule
 
 		file.usedNames[rule.Name()] = moduleName

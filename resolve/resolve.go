@@ -17,9 +17,13 @@ import (
 	. "github.com/tatskaari/go-deps/resolve/model"
 )
 
+type ModuleKey struct {
+	Path, Replace string
+}
+
 type Modules struct {
 	Pkgs        map[string]*packages.Package
-	Mods        map[string]*Module
+	Mods        map[ModuleKey]*Module
 	ImportPaths map[*packages.Package]*ModulePart
 }
 
@@ -35,7 +39,7 @@ func newResolver(rootModuleName string, config *packages.Config) *resolver {
 	return &resolver{
 		Modules: &Modules{
 			Pkgs:        map[string]*packages.Package{},
-			Mods:        map[string]*Module{},
+			Mods:        map[ModuleKey]*Module{},
 			ImportPaths: map[*packages.Package]*ModulePart{},
 		},
 		moduleCounts:   map[string]int{},
@@ -111,7 +115,7 @@ func (r *resolver) addPackageToModuleGraph(done map[*packages.Package]struct{}, 
 		return
 	}
 
-	part := r.getOrCreateModulePart(r.GetModule(pkg.Module), pkg)
+	part := r.getOrCreateModulePart(r.GetModule(KeyForModule(pkg.Module)), pkg)
 	part.Packages[pkg] = struct{}{}
 	r.ImportPaths[pkg] = part
 
@@ -238,7 +242,11 @@ func (r *resolver) resolveModifiedPackages(done map[*packages.Package]struct{}) 
 func (r *resolver) resolve(pkgs []*packages.Package) {
 	for _, p := range pkgs {
 		if p.Module != nil {
-			r.GetModule(p.Module).Version = p.Module.Version
+			if p.Module.Replace != nil {
+				r.GetModule(KeyForModule(p.Module)).Version = p.Module.Replace.Version
+			} else {
+				r.GetModule(KeyForModule(p.Module)).Version = p.Module.Version
+			}
 		}
 		if len(p.GoFiles)+len(p.OtherFiles) == 0 {
 			continue
@@ -290,8 +298,8 @@ func (mods *Modules) Import(pkg *packages.Package) *ModulePart {
 		return pkgModule
 	}
 
-	module, ok := mods.Mods[pkg.Module.Path]
-	if !ok {
+	module := mods.GetModule(KeyForModule(pkg.Module))
+	if module == nil {
 		panic(fmt.Errorf("no import path for pkg %v", pkg.ID))
 	}
 	for _, part := range module.Parts {
@@ -313,14 +321,24 @@ func (mods *Modules) GetPackage(path string) *packages.Package {
 	return pkg
 }
 
-func (mods *Modules) GetModule(mod *packages.Module) *Module {
-	// TODO(jpoole): handle replace
-	m, ok := mods.Mods[mod.Path]
+func KeyForModule(mod *packages.Module) ModuleKey {
+	key := ModuleKey{Path: mod.Path}
+	if mod.Replace != nil {
+		key.Replace = mod.Replace.Path
+	}
+
+	return key
+}
+
+// GetModule gets the module if it exists or creates a new one if needed
+func (mods *Modules) GetModule(key ModuleKey) *Module {
+	m, ok := mods.Mods[key]
 	if !ok {
 		m = &Module{
-			Name: mod.Path,
+			Name:       key.Path,
+			ReplacedBy: key.Replace,
 		}
-		mods.Mods[mod.Path] = m
+		mods.Mods[key] = m
 	}
 	return m
 }
@@ -339,12 +357,12 @@ func (r *resolver) setLicence(pkgs []*packages.Package) (err error) {
 		var m *Module
 		if p.Module == nil {
 			if strings.HasPrefix(p.PkgPath, r.rootModuleName) {
-				m = r.Mods[r.rootModuleName]
+				m = r.Mods[ModuleKey{Path: r.rootModuleName}]
 			} else {
 				return
 			}
 		} else {
-			m = r.Mods[p.Module.Path]
+			m = r.Mods[KeyForModule(p.Module)]
 		}
 		if !m.IsModified() {
 			return
