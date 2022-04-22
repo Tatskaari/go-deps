@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"golang.org/x/tools/go/packages"
 	"strings"
 	"testing"
 
@@ -22,27 +23,27 @@ func TestDependsOn(t *testing.T) {
 	m4p4 := r.GetPackage("m4/p4")
 	m4p5 := r.GetPackage("m4/p5")
 
-	m1p1.Module = "m1"
-	m2p2.Module = "m2"
-	m3p3.Module = "m3"
-	m4p4.Module = "m4"
-	m4p5.Module = "m4"
+	m1p1.Module = &packages.Module{Path: "m1"}
+	m2p2.Module = &packages.Module{Path: "m2"}
+	m3p3.Module = &packages.Module{Path: "m3"}
+	m4p4.Module = &packages.Module{Path: "m4"}
+	m4p5.Module = &packages.Module{Path: "m4"}
 
-	m1p1.Imports = []*Package{m2p2}
-	m2p2.Imports = []*Package{m3p3}
-	m3p3.Imports = []*Package{m4p4}
-	m4p5.Imports = []*Package{m1p1} // Causes a module cycle
+	m1p1.Imports[m2p2.ID] = m2p2
+	m2p2.Imports[m3p3.ID] = m3p3
+	m3p3.Imports[m4p4.ID] = m4p4
+	m4p5.Imports[m1p1.ID] = m1p1
 
 	// Add the packages to the graph
-	r.addPackageToModuleGraph(map[*Package]struct{}{}, m1p1)
-	r.addPackageToModuleGraph(map[*Package]struct{}{}, m4p5)
+	r.addPackageToModuleGraph(map[*packages.Package]struct{}{}, m1p1)
+	r.addPackageToModuleGraph(map[*packages.Package]struct{}{}, m4p5)
 
 	// Check that m4/p5 has an import that depends on m4/p4 (creating a module cycle)
-	require.True(t, r.dependsOn(map[*Package]struct{}{}, m4p5.Imports[0], r.ImportPaths[m4p4]))
+	require.True(t, r.dependsOn(map[*packages.Package]struct{}{}, m4p5.Imports[m1p1.ID], r.ImportPaths[m4p4]))
 
 	// Check that we resolved that by creating a new part
-	require.Len(t, r.GetModule("m4").Parts, 2)
-	_, ok := r.GetModule("m4").Parts[1].Packages[m4p5]
+	require.Len(t, r.GetModule(ModuleKey{Path: "m4"}).Parts, 2)
+	_, ok := r.GetModule(ModuleKey{Path: "m4"}).Parts[1].Packages[m4p5]
 	require.True(t, ok)
 }
 
@@ -64,15 +65,15 @@ func TestResolvesCycle(t *testing.T) {
 
 	r := newResolver(".", nil)
 
-	getModuleNameFor := func(path string) string {
+	getModuleNameFor := func(path string) *packages.Module {
 		modules := []string{"google.golang.org/grpc", "cloud.google.com/go", "golang.org/x/oauth2", "github.com/googleapis/gax-go/v2"}
 		for _, m := range modules {
 			if strings.HasPrefix(path, m) {
-				return m
+				return &packages.Module{Path: m}
 			}
 		}
 		t.Fatalf("can't determine module for %v", path)
-		return ""
+		return nil
 	}
 
 	for importPath, imports := range ps {
@@ -80,14 +81,14 @@ func TestResolvesCycle(t *testing.T) {
 		pkg.Module = getModuleNameFor(importPath)
 		for _, i := range imports {
 			importedPackage := r.GetPackage(i)
-			pkg.Imports = append(pkg.Imports, importedPackage)
+			pkg.Imports[importedPackage.ID] = importedPackage
 		}
 	}
 
-	r.addPackagesToModules(map[*Package]struct{}{})
+	r.addPackagesToModules(map[*packages.Package]struct{}{})
 
 	// Check we don't have a cycle
-	module, ok := r.Mods["cloud.google.com/go"]
+	module, ok := r.Mods[ModuleKey{Path: "cloud.google.com/go"}]
 	require.True(t, ok)
 
 	// TODO(jpoole): Make the generated module graph deterministic so we don't have to have a complicated assertion here
