@@ -1,20 +1,23 @@
 def please_repo_e2e_test(
         name: str,
+        get_wildcards: list,
         plz_command: str,
         repo: str,
         data: dict={},
         deps: list=[],
         tools: dict={},
-        expected_failure: bool = False,
         labels: list = [],
 ):
-    plz_command = plz_command.replace("plz ", "$TOOLS_PLEASE ")
-    if expected_failure:
-        plz_command += "; [ ! $? -eq 0 ]"
+    plz_command = plz_command.replace("plz ", "$TOOLS_PLEASE -o go.gotool:$TOOLS_GO ")
+
+    get_command = [f"$TOOLS_GO_DEPS --build_file_name BUILD_FILE --please_tool $TOOLS_PLEASE --go_tool $TOOLS_GO -w {i}" for i in get_wildcards]
+    get_command = " && ".join(get_command)
 
     test_cmd = [
         "mv $DATA_BASE_CONFIG $DATA_REPO",
         "cd $DATA_REPO",
+        "mkdir -p third_party/go",
+        get_command,
         plz_command,
     ]
 
@@ -24,6 +27,8 @@ def please_repo_e2e_test(
     data["BASE_CONFIG"] = ["//e2e/build_defs:base_config"]
 
     tools["PLEASE"] = ["//e2e/build_defs:please"]
+    tools["GO_DEPS"] = ["//:go-deps"]
+    tools["GO"] = ["//third_party/go:toolchain|go"]
 
 
     return gentest(

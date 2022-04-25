@@ -18,7 +18,9 @@ type BuildGraph struct {
 	ModFiles map[*model.Module]*BuildFile
 	Files    map[string]*BuildFile
 
-	BuildFileName string
+	BuildFileName    string
+	Structured       bool
+	ThirdPartyFolder string
 }
 
 type BuildFile struct {
@@ -27,20 +29,21 @@ type BuildFile struct {
 	ModDownloadRules map[*model.Module]*build.Rule
 
 	usedNames     map[string]string
-	partNames     map[*model.ModulePart]string
 	downloadNames map[*model.Module]string
 }
 
-func NewGraph(buildFileName string) *BuildGraph {
+func NewGraph(buildFileName string, structured bool, thirdPartyFolder string) *BuildGraph {
 	return &BuildGraph{
 		Modules: &resolve.Modules{
 			Pkgs:        map[string]*packages.Package{},
 			Mods:        map[resolve.ModuleKey]*model.Module{},
 			ImportPaths: map[*packages.Package]*model.ModulePart{},
 		},
-		ModFiles:      map[*model.Module]*BuildFile{},
-		Files:         map[string]*BuildFile{},
-		BuildFileName: buildFileName,
+		ModFiles:         map[*model.Module]*BuildFile{},
+		Files:            map[string]*BuildFile{},
+		BuildFileName:    buildFileName,
+		Structured:       structured,
+		ThirdPartyFolder: thirdPartyFolder,
 	}
 }
 
@@ -59,7 +62,6 @@ func newFile(path string) (*BuildFile, error) {
 
 		usedNames:     map[string]string{},
 		downloadNames: map[*model.Module]string{},
-		partNames:     map[*model.ModulePart]string{},
 	}, nil
 }
 
@@ -84,7 +86,6 @@ func (g *BuildGraph) ReadRules(buildFile string) error {
 		}
 		file.ModRules[part] = rule
 		file.usedNames[rule.Name()] = part.Module.Name
-		file.partNames[part] = rule.Name()
 
 		module.Version = rule.AttrString("version")
 

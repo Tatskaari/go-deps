@@ -105,8 +105,14 @@ func (r *resolver) addPackageToModuleGraph(done map[*packages.Package]struct{}, 
 	if _, ok := done[pkg]; ok {
 		return
 	}
-
+	if pkg.ID == "google.golang.org/grpc/resolver" {
+		print()
+	}
+	if pkg.ID == "google.golang.org/grpc/internal/pretty" {
+		print()
+	}
 	for _, i := range pkg.Imports {
+
 		r.addPackageToModuleGraph(done, i)
 	}
 
@@ -162,11 +168,6 @@ func UpdateModules(goTool string, modules *Modules, getPaths []string, goListDri
 	r.Modules = modules
 
 	done := map[*packages.Package]struct{}{}
-	if modules != nil {
-		for _, pkg := range modules.Pkgs {
-			done[pkg] = struct{}{}
-		}
-	}
 
 	r.resolve(pkgs)
 	r.addPackagesToModules(done)
@@ -241,6 +242,10 @@ func (r *resolver) resolveModifiedPackages(done map[*packages.Package]struct{}) 
 
 func (r *resolver) resolve(pkgs []*packages.Package) {
 	for _, p := range pkgs {
+		//TODO(jpoole): we may want to add entry points to `go_module()` for these
+		if p.Name == "main" {
+			continue
+		}
 		if p.Module != nil {
 			if p.Module.Replace != nil {
 				r.GetModule(KeyForModule(p.Module)).Version = p.Module.Replace.Version
@@ -280,9 +285,9 @@ func (r *resolver) resolve(pkgs []*packages.Package) {
 			if importedPkg.Module == nil {
 				panic(fmt.Sprintf("no module for imported package %v. Perhaps you need to run go mod download?", importedPkg.PkgPath))
 			}
-			if importedPkg.Module.Path != p.Module.Path {
-				pkg.Imports[newPkg.ID] = newPkg
-			}
+
+			pkg.Imports[newPkg.ID] = newPkg
+
 			if !r.isResolved(newPkg) {
 				newPackages = append(newPackages, importedPkg)
 			}
