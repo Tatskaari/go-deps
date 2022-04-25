@@ -105,14 +105,7 @@ func (r *resolver) addPackageToModuleGraph(done map[*packages.Package]struct{}, 
 	if _, ok := done[pkg]; ok {
 		return
 	}
-	if pkg.ID == "google.golang.org/grpc/resolver" {
-		print()
-	}
-	if pkg.ID == "google.golang.org/grpc/internal/pretty" {
-		print()
-	}
 	for _, i := range pkg.Imports {
-
 		r.addPackageToModuleGraph(done, i)
 	}
 
@@ -122,14 +115,19 @@ func (r *resolver) addPackageToModuleGraph(done map[*packages.Package]struct{}, 
 	}
 
 	part := r.getOrCreateModulePart(r.GetModule(KeyForModule(pkg.Module)), pkg)
-	part.Packages[pkg] = struct{}{}
-	r.ImportPaths[pkg] = part
 
+	r.ImportPaths[pkg] = part
+	done[pkg] = struct{}{}
+
+	if _, ok := part.Packages[pkg]; ok {
+		done[pkg] = struct{}{}
+		return
+	}
+
+	part.Packages[pkg] = struct{}{}
 	if !part.IsWildcardImport(pkg) {
 		part.Modified = true
 	}
-
-	done[pkg] = struct{}{}
 }
 
 func getCurrentModuleName(goTool string) string {
@@ -142,10 +140,10 @@ func getCurrentModuleName(goTool string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func (r *resolver) addPackagesToModules(done map[*packages.Package]struct{}) {
+func (r *resolver) addPackagesToModules(pkgs []*packages.Package, done map[*packages.Package]struct{}) {
 	processed := 0
 
-	for _, pkg := range r.Pkgs {
+	for _, pkg := range pkgs {
 		r.addPackageToModuleGraph(done, pkg)
 		processed++
 		progress.PrintUpdate("Building module graph... %d of %d packages.", processed, len(r.Pkgs))
@@ -170,7 +168,7 @@ func UpdateModules(goTool string, modules *Modules, getPaths []string, goListDri
 	done := map[*packages.Package]struct{}{}
 
 	r.resolve(pkgs)
-	r.addPackagesToModules(done)
+	r.addPackagesToModules(pkgs, done)
 
 	if err := r.resolveModifiedPackages(done); err != nil {
 		return err
@@ -236,7 +234,7 @@ func (r *resolver) resolveModifiedPackages(done map[*packages.Package]struct{}) 
 	}
 
 	r.resolve(pkgs)
-	r.addPackagesToModules(done)
+	r.addPackagesToModules(pkgs, done)
 	return nil
 }
 
