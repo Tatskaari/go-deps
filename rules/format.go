@@ -203,7 +203,7 @@ func (g *BuildGraph) Format(write bool) error {
 
 			for pkg := range part.Packages {
 				if part.IsWildcardImport(pkg) {
-					return nil
+					continue
 				}
 				i := toInstall(pkg)
 				if _, ok := doneInstalls[i]; !ok {

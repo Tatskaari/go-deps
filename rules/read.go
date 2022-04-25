@@ -37,7 +37,7 @@ func NewGraph(buildFileName string, structured bool, thirdPartyFolder string) *B
 		Modules: &resolve.Modules{
 			Pkgs:        map[string]*packages.Package{},
 			Mods:        map[resolve.ModuleKey]*model.Module{},
-			ImportPaths: map[*packages.Package]*model.ModulePart{},
+			ImportPaths: map[string]*model.ModulePart{},
 		},
 		ModFiles:         map[*model.Module]*BuildFile{},
 		Files:            map[string]*BuildFile{},
@@ -107,7 +107,7 @@ func (g *BuildGraph) ReadRules(buildFile string) error {
 			pkg.Module = &packages.Module{Path: module.Name}
 
 			part.Packages[pkg] = struct{}{}
-			g.Modules.ImportPaths[pkg] = part
+			g.Modules.ImportPaths[pkg.ID] = part
 		}
 
 		module.Parts = append(module.Parts, part)

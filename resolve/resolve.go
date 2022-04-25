@@ -24,7 +24,7 @@ type ModuleKey struct {
 type Modules struct {
 	Pkgs        map[string]*packages.Package
 	Mods        map[ModuleKey]*Module
-	ImportPaths map[*packages.Package]*ModulePart
+	ImportPaths map[string]*ModulePart
 }
 
 type resolver struct {
@@ -40,7 +40,7 @@ func newResolver(rootModuleName string, config *packages.Config) *resolver {
 		Modules: &Modules{
 			Pkgs:        map[string]*packages.Package{},
 			Mods:        map[ModuleKey]*Module{},
-			ImportPaths: map[*packages.Package]*ModulePart{},
+			ImportPaths: map[string]*ModulePart{},
 		},
 		moduleCounts:   map[string]int{},
 		rootModuleName: rootModuleName,
@@ -72,6 +72,16 @@ func (r *resolver) dependsOn(done map[*packages.Package]struct{}, pkg *packages.
 
 // getOrCreateModulePart gets or create a module part that we can add this package to without causing a cycle
 func (r *resolver) getOrCreateModulePart(m *Module, pkg *packages.Package) *ModulePart {
+	if part, ok := r.ImportPaths[pkg.ID]; ok {
+		return part
+	}
+
+	for _, part := range m.Parts {
+		if part.IsWildcardImport(pkg) {
+			return part
+		}
+	}
+
 	var validPart *ModulePart
 	for _, part := range m.Parts {
 		valid := true
@@ -116,7 +126,7 @@ func (r *resolver) addPackageToModuleGraph(done map[*packages.Package]struct{}, 
 
 	part := r.getOrCreateModulePart(r.GetModule(KeyForModule(pkg.Module)), pkg)
 
-	r.ImportPaths[pkg] = part
+	r.ImportPaths[pkg.ID] = part
 	done[pkg] = struct{}{}
 
 	if _, ok := part.Packages[pkg]; ok {
@@ -303,7 +313,7 @@ func (r *resolver) resolve(pkgs []*packages.Package) {
 }
 
 func (mods *Modules) Import(pkg *packages.Package) *ModulePart {
-	pkgModule, ok := mods.ImportPaths[pkg]
+	pkgModule, ok := mods.ImportPaths[pkg.ID]
 	if ok {
 		return pkgModule
 	}
@@ -314,7 +324,7 @@ func (mods *Modules) Import(pkg *packages.Package) *ModulePart {
 	}
 	for _, part := range module.Parts {
 		if part.IsWildcardImport(pkg) {
-			mods.ImportPaths[pkg] = part
+			mods.ImportPaths[pkg.ID] = part
 			return part
 		}
 	}
