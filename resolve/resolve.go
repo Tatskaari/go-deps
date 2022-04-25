@@ -240,12 +240,18 @@ func (r *resolver) resolveModifiedPackages(done map[*packages.Package]struct{}) 
 	return nil
 }
 
+// resolve adds the packages we've loaded to the resolver so they can later be added to module parts, resolving cycles
+// as we go
 func (r *resolver) resolve(pkgs []*packages.Package) {
+	// TODO(jpoole): now we're using the packages.Package struct, we probably can skip most of this step
+
 	for _, p := range pkgs {
-		//TODO(jpoole): we may want to add entry points to `go_module()` for these
+		// TODO(jpoole): we may want to add entry points to `go_module()` for these or otherwise facilitate binary
+		// module rules.
 		if p.Name == "main" {
 			continue
 		}
+		// Ensure the module has been created
 		if p.Module != nil {
 			if p.Module.Replace != nil {
 				r.GetModule(KeyForModule(p.Module)).Version = p.Module.Replace.Version
@@ -256,6 +262,7 @@ func (r *resolver) resolve(pkgs []*packages.Package) {
 		if len(p.GoFiles)+len(p.OtherFiles) == 0 {
 			continue
 		}
+
 		pkg := r.GetPackage(p.PkgPath)
 		if p.Module == nil {
 			if strings.HasPrefix(p.PkgPath, r.rootModuleName) {

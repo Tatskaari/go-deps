@@ -132,9 +132,12 @@ func (driver *pleaseDriver) determineVersionRequirements(mod, ver string) error 
 		}
 	}
 
+	driver.moduleRequirements[mod] = &requirement{
+		mod: &packages.Module{Path: mod, Version: ver},
+	}
+
 	replacements := make(map[string]*modfile.Replace)
 	for _, r := range modFile.Replace {
-
 		newPath := r.New.Path
 		newVer := r.New.Version
 
@@ -146,17 +149,12 @@ func (driver *pleaseDriver) determineVersionRequirements(mod, ver string) error 
 			newPath = filepath.Join(mod, newPath)
 		}
 
-		if err := driver.determineVersionRequirements(newPath, newVer); err != nil {
-			return err
+		if err := driver.determineVersionRequirements(newPath, newVer); err == nil {
+			replacements[r.Old.Path] = &modfile.Replace{Old: r.Old, New: module.Version{Path: newPath, Version: newVer}}
 		}
-
-		replacements[r.Old.Path] = &modfile.Replace{Old: r.Old, New: module.Version{Path: newPath, Version: newVer}}
 	}
 
-	driver.moduleRequirements[mod] = &requirement{
-		mod:          &packages.Module{Path: mod, Version: ver},
-		replacements: replacements,
-	}
+	driver.moduleRequirements[mod].replacements = replacements
 
 	for _, req := range modFile.Require {
 		if _, ok := replacements[req.Mod.Path]; !ok {
@@ -173,6 +171,8 @@ func (driver *pleaseDriver) determineVersionRequirements(mod, ver string) error 
 func (driver *pleaseDriver) resolveGetModules(patterns []string) ([]string, error) {
 	pkgWildCards := make([]string, 0, len(patterns))
 	for _, p := range patterns {
+		progress.PrintUpdate("Resolving %v", p)
+
 		parts := strings.Split(p, "@")
 		pkgPart := parts[0]
 		pkgWildCards = append(pkgWildCards, pkgPart)

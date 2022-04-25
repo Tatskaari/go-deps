@@ -163,6 +163,12 @@ func (driver *pleaseDriver) loadPattern(pattern string) ([]string, error) {
 				return nil
 			}
 
+			// These are ignored by the go tool, so we should too.
+			base := filepath.Base(path)
+			if base == "testdata" || strings.HasPrefix(base, ".") || strings.HasPrefix(base, "_") {
+				return nil
+			}
+
 			if strings.HasPrefix(i.Name(), ".") {
 				return fs.SkipDir
 			}
