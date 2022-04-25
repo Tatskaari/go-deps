@@ -234,6 +234,9 @@ func (r *resolver) resolveModifiedPackages(done map[*packages.Package]struct{}) 
 						modifiedPackages = append(modifiedPackages, pkg.ID)
 					}
 				}
+				for _, wc := range part.InstallWildCards {
+					modifiedPackages = append(modifiedPackages, fmt.Sprintf("%v/%v/...", m.Name, wc))
+				}
 			}
 		}
 	}

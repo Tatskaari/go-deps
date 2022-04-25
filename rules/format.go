@@ -52,19 +52,42 @@ func (file *BuildFile) moduleName(mod *resolve.Module, structured bool) string {
 }
 
 func (file *BuildFile) partName(part *resolve.ModulePart, structured bool) string {
-	modRuleName := file.moduleName(part.Module, structured)
-
-	displayIndex := len(part.Module.Parts) - part.Index
-	suffix := ""
-	if displayIndex > 0 {
-		suffix = fmt.Sprintf("_%d", displayIndex)
+	// If the part already has a name, use that otherwise generate one
+	if part.RuleName != "" {
+		return part.RuleName
 	}
 
-	return modRuleName + suffix
+	takenNames := map[string]struct{}{}
+	for _, m := range part.Module.Parts {
+		if m.RuleName != "" {
+			takenNames[m.RuleName] = struct{}{}
+		}
+	}
+
+	displayIndex := len(part.Module.Parts) - part.Index
+	modRuleName := file.moduleName(part.Module, structured)
+
+	for part.RuleName == "" {
+		suffix := ""
+		if displayIndex > 0 {
+			suffix = fmt.Sprintf("_%d", displayIndex)
+		}
+		name := modRuleName + suffix
+		if _, ok := takenNames[name]; ok {
+			displayIndex++
+		} else {
+			part.RuleName = name
+		}
+	}
+
+	return part.RuleName
 }
 
 func (file *BuildFile) downloadRuleName(module *resolve.Module, structured bool) string {
-	return file.moduleName(module, structured) + "_dl"
+	if module.DownloadRuleName == "" {
+		module.DownloadRuleName = file.moduleName(module, structured) + "_dl"
+	}
+	return module.DownloadRuleName
 }
 
 func toInstall(pkg *packages.Package) string {
@@ -134,6 +157,10 @@ func (g *BuildGraph) findDeps(part *resolve.ModulePart, done map[string]struct{}
 
 func (g *BuildGraph) Format(write bool) error {
 	for _, m := range g.Modules.Mods {
+		if !m.IsModified() {
+			continue
+		}
+
 		file, err := g.file(m)
 		if err != nil {
 			return err
