@@ -1,5 +1,9 @@
 # Go-Deps
 
+This tool is not maintained anymore. The `go_module` rules are being replaced by `go_repo`. This tool
+is being replaced by [puku](https://github.com/please-build/puku), which will completely automate go BUILD
+file maintainence.
+
 This tool is used to help maintain your `go_module()` rules in a [Please](https://please.build) project.
 
 # Features
