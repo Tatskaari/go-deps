@@ -6,6 +6,7 @@ import (
 	"golang.org/x/mod/modfile"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -113,7 +114,13 @@ func (proxy *Proxy) ResolveModuleForPackage(pattern string) (string, error) {
 }
 
 func (proxy *Proxy) GetGoMod(mod, ver string) (*modfile.File, error) {
-	// TODO(jpoole): save this to disk to avoid downloading it each time
+	path := filepath.Join("plz-out/godeps/modfiles", fmt.Sprintf("%v@%v", mod, ver))
+
+	b, err := os.ReadFile(path)
+	if err == nil {
+		return modfile.Parse(path, b, nil)
+	}
+
 	file := fmt.Sprintf("%s/%s/@v/%s.mod", proxy.url, strings.ToLower(mod), ver)
 	resp, err := client.Get(file)
 	if err != nil {
@@ -122,6 +129,13 @@ func (proxy *Proxy) GetGoMod(mod, ver string) (*modfile.File, error) {
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), os.ModeDir|0775); err != nil && os.IsExist(err) {
+		return nil, err
+	}
+	if err := os.WriteFile(path, body, 0444); err != nil {
 		return nil, err
 	}
 

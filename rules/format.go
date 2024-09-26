@@ -22,13 +22,16 @@ func split(path string) (string, string) {
 	return filepath.Clean(dir), base
 }
 
-func (file *BuildFile) assignName(mod *resolve.Module, suffix string, structured bool) string {
+// moduleName gets a unique name for a module
+func (file *BuildFile) moduleName(mod *resolve.Module, structured bool) string {
+	modPath := mod.Name
+
 	path, base := split(mod.Name)
-	name := base + suffix
+	name := base
 	if mod.ReplacedBy != "" {
-		name = base + "_replace" + suffix
-	}
-	if !structured && semverRegex.MatchString(name) {
+		modPath = mod.ReplacedBy
+		name = strings.ReplaceAll(mod.ReplacedBy, "/", "_") + "_replace"
+	} else if !structured && semverRegex.MatchString(name) {
 		path, base = split(path)
 		name = base + "." + name
 	}
@@ -38,38 +41,53 @@ func (file *BuildFile) assignName(mod *resolve.Module, suffix string, structured
 		if !ok {
 			break
 		}
-		if extantPath == mod.Name {
+		if extantPath == modPath {
 			return name
 		}
 		path, base = split(path)
 		name = base + "." + name
 	}
-	file.usedNames[name] = mod.Name
+	file.usedNames[name] = modPath
 	return name
 }
 
 func (file *BuildFile) partName(part *resolve.ModulePart, structured bool) string {
-	if name, ok := file.partNames[part]; ok {
-		return name
-	}
-	displayIndex := len(part.Module.Parts) - part.Index
-	suffix := ""
-	if displayIndex > 0 {
-		suffix = fmt.Sprintf("_%d", displayIndex)
+	// If the part already has a name, use that otherwise generate one
+	if part.RuleName != "" {
+		return part.RuleName
 	}
 
-	name := file.assignName(part.Module, suffix, structured)
-	file.partNames[part] = name
-	return name
+	takenNames := map[string]struct{}{}
+	for _, m := range part.Module.Parts {
+		if m.RuleName != "" {
+			takenNames[m.RuleName] = struct{}{}
+		}
+	}
+
+	displayIndex := len(part.Module.Parts) - part.Index
+	modRuleName := file.moduleName(part.Module, structured)
+
+	for part.RuleName == "" {
+		suffix := ""
+		if displayIndex > 0 {
+			suffix = fmt.Sprintf("_%d", displayIndex)
+		}
+		name := modRuleName + suffix
+		if _, ok := takenNames[name]; ok {
+			displayIndex++
+		} else {
+			part.RuleName = name
+		}
+	}
+
+	return part.RuleName
 }
 
 func (file *BuildFile) downloadRuleName(module *resolve.Module, structured bool) string {
-	if name, ok := file.downloadNames[module]; ok {
-		return name
+	if module.DownloadRuleName == "" {
+		module.DownloadRuleName = file.moduleName(module, structured) + "_dl"
 	}
-	name := file.assignName(module, "_dl", structured)
-	file.downloadNames[module] = name
-	return name
+	return module.DownloadRuleName
 }
 
 func toInstall(pkg *packages.Package) string {
@@ -80,12 +98,12 @@ func toInstall(pkg *packages.Package) string {
 	return install
 }
 
-func (g *BuildGraph) file(mod *resolve.Module, structured bool, thirdPartyFolder string) (*BuildFile, error) {
+func (g *BuildGraph) file(mod *resolve.Module) (*BuildFile, error) {
 	path := ""
-	if structured {
-		path = filepath.Join(thirdPartyFolder, mod.Name, g.BuildFileName)
+	if g.Structured {
+		path = filepath.Join(g.ThirdPartyFolder, mod.Name, g.BuildFileName)
 	} else {
-		path = filepath.Join(thirdPartyFolder, g.BuildFileName)
+		path = filepath.Join(g.ThirdPartyFolder, g.BuildFileName)
 	}
 
 	if f, ok := g.Files[path]; ok {
@@ -113,16 +131,44 @@ func cannonicalise(name, modpath, thirdParty string, structured bool) string {
 	return "//" + filepath.Join(thirdParty, modpath) + ":" + name
 }
 
-func (g *BuildGraph) Format(structured, write bool, thirdPartyFolder string) error {
+func (g *BuildGraph) findDeps(part *resolve.ModulePart, done map[string]struct{}, pkg *packages.Package) ([]string, error) {
+	ret := make([]string, 0, len(pkg.Imports))
+	for _, i := range pkg.Imports {
+		dep := g.Modules.Import(i)
+		if dep == part {
+			continue
+		}
+
+		depFile, err := g.file(dep.Module)
+		if err != nil {
+			return nil, err
+		}
+		label := cannonicalise(depFile.partName(dep, g.Structured), dep.Module.Name, g.ThirdPartyFolder, g.Structured)
+
+		if _, ok := done[label]; ok {
+			continue
+		}
+
+		done[label] = struct{}{}
+		ret = append(ret, label)
+	}
+	return ret, nil
+}
+
+func (g *BuildGraph) Format(write bool) error {
 	for _, m := range g.Modules.Mods {
-		file, err := g.file(m, structured, thirdPartyFolder)
+		if !m.IsModified() {
+			continue
+		}
+
+		file, err := g.file(m)
 		if err != nil {
 			return err
 		}
 		dlRule, ok := file.ModDownloadRules[m]
 		if len(m.Parts) > 1 || m.ReplacedBy != "" {
 			if !ok {
-				dlRule = NewRule(file.File, "go_mod_download", file.downloadRuleName(m, structured))
+				dlRule = NewRule(file.File, "go_mod_download", file.downloadRuleName(m, g.Structured))
 				file.ModDownloadRules[m] = dlRule
 			}
 			name := m.Name
@@ -144,11 +190,14 @@ func (g *BuildGraph) Format(structured, write bool, thirdPartyFolder string) err
 			if !part.Modified {
 				continue
 			}
+			name := file.partName(part, g.Structured)
+
 			modRule, ok := file.ModRules[part]
 			if !ok {
-				modRule = NewRule(file.File, "go_module", file.partName(part, structured))
+				modRule = NewRule(file.File, "go_module", name)
 				file.ModRules[part] = modRule
 			}
+			modRule.SetAttr("name", NewStringExpr(name))
 			modRule.DelAttr("install")
 			modRule.DelAttr("deps")
 			modRule.DelAttr("exported_deps")
@@ -158,7 +207,7 @@ func (g *BuildGraph) Format(structured, write bool, thirdPartyFolder string) err
 
 			if dlRule != nil {
 				modRule.DelAttr("version")
-				modRule.SetAttr("download", NewStringExpr(":"+file.downloadRuleName(m, structured)))
+				modRule.SetAttr("download", NewStringExpr(":"+file.downloadRuleName(m, g.Structured)))
 			} else {
 				if m.Licence != "" {
 					modRule.SetAttr("licences", NewStringList(m.Licence))
@@ -168,7 +217,7 @@ func (g *BuildGraph) Format(structured, write bool, thirdPartyFolder string) err
 				}
 			}
 
-			installs := make([]string, 0, len(part.Packages))
+			installs := make([]string, 0, len(part.Packages)+len(part.InstallWildCards))
 			deps := make([]string, 0, len(part.Packages))
 			var exportedDeps []string
 
@@ -185,24 +234,29 @@ func (g *BuildGraph) Format(structured, write bool, thirdPartyFolder string) err
 				}
 				i := toInstall(pkg)
 				if _, ok := doneInstalls[i]; !ok {
-					installs = append(installs, i)
 					doneInstalls[i] = struct{}{}
+					installs = append(installs, i)
 				}
 
 				for _, i := range pkg.Imports {
 					dep := g.Modules.Import(i)
-					depFile, err := g.file(dep.Module, structured, thirdPartyFolder)
+					if dep == part {
+						continue
+					}
+					depFile, err := g.file(dep.Module)
 					if err != nil {
 						return err
 					}
-					depRuleName := depFile.partName(dep, structured)
-					depRule := cannonicalise(depRuleName, dep.Module.Name, thirdPartyFolder, structured)
-					if _, ok := doneDeps[depRule]; ok || dep.Module == m {
+					depRuleName := depFile.partName(dep, g.Structured)
+					depRule := cannonicalise(depRuleName, dep.Module.Name, g.ThirdPartyFolder, g.Structured)
+					if _, ok := doneDeps[depRule]; ok {
 						continue
 					}
 					doneDeps[depRule] = struct{}{}
 					deps = append(deps, depRule)
 				}
+
+				//deps = append(deps, d...)
 			}
 
 			// The last part is the namesake and should export the rest of the parts.
@@ -210,10 +264,10 @@ func (g *BuildGraph) Format(structured, write bool, thirdPartyFolder string) err
 				modRule.SetAttr("visibility", NewStringList("PUBLIC"))
 
 				for _, part := range m.Parts[:(len(m.Parts) - 1)] {
-					exportedDeps = append(exportedDeps, ":"+file.partName(part, structured))
+					exportedDeps = append(exportedDeps, ":"+file.partName(part, g.Structured))
 				}
 			} else {
-				if structured {
+				if g.Structured {
 					modRule.SetAttr("visibility", NewStringList("PUBLIC"))
 				}
 			}

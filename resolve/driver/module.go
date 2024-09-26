@@ -117,10 +117,6 @@ func (driver *pleaseDriver) determineVersionRequirements(mod, ver string) error 
 		}
 	}
 
-	if mod == "" {
-		panic(mod)
-	}
-
 	progress.PrintUpdate("Resolving %v@%v", mod, ver)
 
 	modFile, err := driver.proxy.GetGoMod(mod, ver)
@@ -132,9 +128,12 @@ func (driver *pleaseDriver) determineVersionRequirements(mod, ver string) error 
 		}
 	}
 
+	driver.moduleRequirements[mod] = &requirement{
+		mod: &packages.Module{Path: mod, Version: ver},
+	}
+
 	replacements := make(map[string]*modfile.Replace)
 	for _, r := range modFile.Replace {
-
 		newPath := r.New.Path
 		newVer := r.New.Version
 
@@ -146,17 +145,12 @@ func (driver *pleaseDriver) determineVersionRequirements(mod, ver string) error 
 			newPath = filepath.Join(mod, newPath)
 		}
 
-		if err := driver.determineVersionRequirements(newPath, newVer); err != nil {
-			return err
+		if err := driver.determineVersionRequirements(newPath, newVer); err == nil {
+			replacements[r.Old.Path] = &modfile.Replace{Old: r.Old, New: module.Version{Path: newPath, Version: newVer}}
 		}
-
-		replacements[r.Old.Path] = &modfile.Replace{Old: r.Old, New: module.Version{Path: newPath, Version: newVer}}
 	}
 
-	driver.moduleRequirements[mod] = &requirement{
-		mod:          &packages.Module{Path: mod, Version: ver},
-		replacements: replacements,
-	}
+	driver.moduleRequirements[mod].replacements = replacements
 
 	for _, req := range modFile.Require {
 		if _, ok := replacements[req.Mod.Path]; !ok {
@@ -173,11 +167,13 @@ func (driver *pleaseDriver) determineVersionRequirements(mod, ver string) error 
 func (driver *pleaseDriver) resolveGetModules(patterns []string) ([]string, error) {
 	pkgWildCards := make([]string, 0, len(patterns))
 	for _, p := range patterns {
+		progress.PrintUpdate("Resolving %v", p)
+
 		parts := strings.Split(p, "@")
 		pkgPart := parts[0]
 		pkgWildCards = append(pkgWildCards, pkgPart)
 
-		mod, err := driver.proxy.ResolveModuleForPackage(pkgPart)
+		mod, err := driver.ResolveModuleForPackage(pkgPart)
 		if err != nil {
 			return nil, err
 		}
@@ -277,32 +273,40 @@ func (driver *pleaseDriver) findPackageInKnownModules(id string) string {
 	return ""
 }
 
-func (driver *pleaseDriver) ModuleForPackage(id string) (*requirement, error) {
-	module := driver.findPackageInKnownModules(id)
-	if module == "" {
+func (driver *pleaseDriver) ResolveModuleForPackage(id string) (string, error) {
+	mod := driver.findPackageInKnownModules(id)
+	if mod == "" {
 		var err error
-		module, err = driver.proxy.ResolveModuleForPackage(id)
+		mod, err = driver.proxy.ResolveModuleForPackage(id)
 		if err != nil {
-			return nil, err
+			return "", err
 		}
 	}
+	return mod, nil
+}
 
-	if req, ok := driver.moduleRequirements[module]; ok {
+func (driver *pleaseDriver) ModuleForPackage(id string) (*requirement, error) {
+	mod, err := driver.ResolveModuleForPackage(id)
+	if err != nil {
+		return nil, err
+	}
+
+	if req, ok := driver.moduleRequirements[mod]; ok {
 		return req, nil
 	}
 
-	latest, err := driver.proxy.GetLatestVersion(module)
+	latest, err := driver.proxy.GetLatestVersion(mod)
 	if err != nil {
 		return nil, err
 	}
 
 	// TODO(jpoole): this could cause updates of already downloaded modules. We probably need to re-run our analysis at
 	//  this point
-	if err := driver.determineVersionRequirements(module, latest.Version); err != nil {
+	if err := driver.determineVersionRequirements(mod, latest.Version); err != nil {
 		return nil, err
 	}
 
-	req, ok := driver.moduleRequirements[module]
+	req, ok := driver.moduleRequirements[mod]
 	if !ok {
 		return nil, fmt.Errorf("failed to determine module requirements for %v", id)
 	}

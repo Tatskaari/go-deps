@@ -19,7 +19,7 @@ var opts struct {
 	Structured       bool   `long:"structured" short:"s" description:"Whether to produce a structured directory tree for each module. Defaults to a flat BUILD file for all third party rules."`
 	Write            bool   `long:"write" short:"w" description:"Whether write the rules back to the BUILD files. Prints to stdout by default."`
 	PleaseTool       string `long:"please_tool" default:"plz" description:"The path to the Please binary."`
-	GoTool           string `long:"go_tool" default:"plz" description:"The path to the Please binary."`
+	GoTool           string `long:"go_tool" default:"go" description:"The path to the Please binary."`
 	BuildFileName    string `long:"build_file_name" default:"BUILD" description:"The filename to use for BUILD files. Defaults to BUILD."`
 	Args             struct {
 		Packages []string `positional-arg-name:"packages" description:"Packages to install following 'go get' style patters. These can optionally have versions e.g. github.com/example/module/...@v1.0.0"`
@@ -38,7 +38,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	moduleGraph := rules.NewGraph(opts.BuildFileName)
+	moduleGraph := rules.NewGraph(opts.BuildFileName, opts.Structured, opts.ThirdPartyFolder)
 	if opts.Structured {
 		err := filepath.Walk(opts.ThirdPartyFolder, func(path string, info fs.FileInfo, err error) error {
 			if info.IsDir() {
@@ -65,7 +65,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if err := moduleGraph.Format(opts.Structured, opts.Write, opts.ThirdPartyFolder); err != nil {
+	if err := moduleGraph.Format(opts.Write); err != nil {
 		log.Fatal(err)
 	}
 }

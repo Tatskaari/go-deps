@@ -39,7 +39,7 @@ func TestDependsOn(t *testing.T) {
 	r.addPackageToModuleGraph(map[*packages.Package]struct{}{}, m4p5)
 
 	// Check that m4/p5 has an import that depends on m4/p4 (creating a module cycle)
-	require.True(t, r.dependsOn(map[*packages.Package]struct{}{}, m4p5.Imports[m1p1.ID], r.ImportPaths[m4p4]))
+	require.True(t, r.dependsOn(map[*packages.Package]struct{}{}, m4p5.Imports[m1p1.ID], r.ImportPaths[m4p4.ID]))
 
 	// Check that we resolved that by creating a new part
 	require.Len(t, r.GetModule(ModuleKey{Path: "m4"}).Parts, 2)
@@ -75,7 +75,7 @@ func TestResolvesCycle(t *testing.T) {
 		t.Fatalf("can't determine module for %v", path)
 		return nil
 	}
-
+	pkgs := make([]*packages.Package, 0, len(ps))
 	for importPath, imports := range ps {
 		pkg := r.GetPackage(importPath)
 		pkg.Module = getModuleNameFor(importPath)
@@ -83,9 +83,11 @@ func TestResolvesCycle(t *testing.T) {
 			importedPackage := r.GetPackage(i)
 			pkg.Imports[importedPackage.ID] = importedPackage
 		}
+
+		pkgs = append(pkgs, pkg)
 	}
 
-	r.addPackagesToModules(map[*packages.Package]struct{}{})
+	r.addPackagesToModules(pkgs, map[*packages.Package]struct{}{})
 
 	// Check we don't have a cycle
 	module, ok := r.Mods[ModuleKey{Path: "cloud.google.com/go"}]
@@ -105,7 +107,7 @@ func TestResolvesCycle(t *testing.T) {
 func findModuleDeps(r *resolver, from *ModulePart, currentPart *ModulePart, parts map[*ModulePart]struct{}) {
 	for pkg := range currentPart.Packages {
 		for _, i := range pkg.Imports {
-			mod := r.ImportPaths[i]
+			mod := r.ImportPaths[i.ID]
 			// Ignore self imports
 			if mod == currentPart {
 				continue

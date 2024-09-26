@@ -163,6 +163,12 @@ func (driver *pleaseDriver) loadPattern(pattern string) ([]string, error) {
 				return nil
 			}
 
+			// These are ignored by the go tool, so we should too.
+			base := filepath.Base(path)
+			if base == "testdata" || strings.HasPrefix(base, ".") || strings.HasPrefix(base, "_") {
+				return nil
+			}
+
 			if strings.HasPrefix(i.Name(), ".") {
 				return fs.SkipDir
 			}
@@ -258,12 +264,19 @@ func (driver *pleaseDriver) Resolve(cfg *packages.Config, patterns ...string) (*
 	}
 
 	resp := new(packages.DriverResponse)
+	done := map[string]struct{}{}
 	for _, p := range pkgWildCards {
 		pkgs, err := driver.loadPattern(p)
 		if err != nil {
 			return nil, err
 		}
-		resp.Roots = append(resp.Roots, pkgs...)
+		for _, p := range pkgs {
+			if _, ok := done[p]; ok {
+				continue
+			}
+			done[p] = struct{}{}
+			resp.Roots = append(resp.Roots, p)
+		}
 	}
 
 	resp.Packages = make([]*packages.Package, 0, len(driver.packages))

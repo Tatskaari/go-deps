@@ -24,7 +24,7 @@ type ModuleKey struct {
 type Modules struct {
 	Pkgs        map[string]*packages.Package
 	Mods        map[ModuleKey]*Module
-	ImportPaths map[*packages.Package]*ModulePart
+	ImportPaths map[string]*ModulePart
 }
 
 type resolver struct {
@@ -40,7 +40,7 @@ func newResolver(rootModuleName string, config *packages.Config) *resolver {
 		Modules: &Modules{
 			Pkgs:        map[string]*packages.Package{},
 			Mods:        map[ModuleKey]*Module{},
-			ImportPaths: map[*packages.Package]*ModulePart{},
+			ImportPaths: map[string]*ModulePart{},
 		},
 		moduleCounts:   map[string]int{},
 		rootModuleName: rootModuleName,
@@ -72,6 +72,16 @@ func (r *resolver) dependsOn(done map[*packages.Package]struct{}, pkg *packages.
 
 // getOrCreateModulePart gets or create a module part that we can add this package to without causing a cycle
 func (r *resolver) getOrCreateModulePart(m *Module, pkg *packages.Package) *ModulePart {
+	if part, ok := r.ImportPaths[pkg.ID]; ok {
+		return part
+	}
+
+	for _, part := range m.Parts {
+		if part.IsWildcardImport(pkg) {
+			return part
+		}
+	}
+
 	var validPart *ModulePart
 	for _, part := range m.Parts {
 		valid := true
@@ -105,7 +115,6 @@ func (r *resolver) addPackageToModuleGraph(done map[*packages.Package]struct{}, 
 	if _, ok := done[pkg]; ok {
 		return
 	}
-
 	for _, i := range pkg.Imports {
 		r.addPackageToModuleGraph(done, i)
 	}
@@ -116,14 +125,19 @@ func (r *resolver) addPackageToModuleGraph(done map[*packages.Package]struct{}, 
 	}
 
 	part := r.getOrCreateModulePart(r.GetModule(KeyForModule(pkg.Module)), pkg)
-	part.Packages[pkg] = struct{}{}
-	r.ImportPaths[pkg] = part
 
+	r.ImportPaths[pkg.ID] = part
+	done[pkg] = struct{}{}
+
+	if _, ok := part.Packages[pkg]; ok {
+		done[pkg] = struct{}{}
+		return
+	}
+
+	part.Packages[pkg] = struct{}{}
 	if !part.IsWildcardImport(pkg) {
 		part.Modified = true
 	}
-
-	done[pkg] = struct{}{}
 }
 
 func getCurrentModuleName(goTool string) string {
@@ -136,10 +150,10 @@ func getCurrentModuleName(goTool string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func (r *resolver) addPackagesToModules(done map[*packages.Package]struct{}) {
+func (r *resolver) addPackagesToModules(pkgs []*packages.Package, done map[*packages.Package]struct{}) {
 	processed := 0
 
-	for _, pkg := range r.Pkgs {
+	for _, pkg := range pkgs {
 		r.addPackageToModuleGraph(done, pkg)
 		processed++
 		progress.PrintUpdate("Building module graph... %d of %d packages.", processed, len(r.Pkgs))
@@ -162,14 +176,9 @@ func UpdateModules(goTool string, modules *Modules, getPaths []string, goListDri
 	r.Modules = modules
 
 	done := map[*packages.Package]struct{}{}
-	if modules != nil {
-		for _, pkg := range modules.Pkgs {
-			done[pkg] = struct{}{}
-		}
-	}
 
 	r.resolve(pkgs)
-	r.addPackagesToModules(done)
+	r.addPackagesToModules(pkgs, done)
 
 	if err := r.resolveModifiedPackages(done); err != nil {
 		return err
@@ -225,6 +234,9 @@ func (r *resolver) resolveModifiedPackages(done map[*packages.Package]struct{}) 
 						modifiedPackages = append(modifiedPackages, pkg.ID)
 					}
 				}
+				for _, wc := range part.InstallWildCards {
+					modifiedPackages = append(modifiedPackages, fmt.Sprintf("%v/%v/...", m.Name, wc))
+				}
 			}
 		}
 	}
@@ -235,12 +247,22 @@ func (r *resolver) resolveModifiedPackages(done map[*packages.Package]struct{}) 
 	}
 
 	r.resolve(pkgs)
-	r.addPackagesToModules(done)
+	r.addPackagesToModules(pkgs, done)
 	return nil
 }
 
+// resolve adds the packages we've loaded to the resolver so they can later be added to module parts, resolving cycles
+// as we go
 func (r *resolver) resolve(pkgs []*packages.Package) {
+	// TODO(jpoole): now we're using the packages.Package struct, we probably can skip most of this step
+
 	for _, p := range pkgs {
+		// TODO(jpoole): we may want to add entry points to `go_module()` for these or otherwise facilitate binary
+		// module rules.
+		if p.Name == "main" {
+			continue
+		}
+		// Ensure the module has been created
 		if p.Module != nil {
 			if p.Module.Replace != nil {
 				r.GetModule(KeyForModule(p.Module)).Version = p.Module.Replace.Version
@@ -251,6 +273,7 @@ func (r *resolver) resolve(pkgs []*packages.Package) {
 		if len(p.GoFiles)+len(p.OtherFiles) == 0 {
 			continue
 		}
+
 		pkg := r.GetPackage(p.PkgPath)
 		if p.Module == nil {
 			if strings.HasPrefix(p.PkgPath, r.rootModuleName) {
@@ -280,9 +303,9 @@ func (r *resolver) resolve(pkgs []*packages.Package) {
 			if importedPkg.Module == nil {
 				panic(fmt.Sprintf("no module for imported package %v. Perhaps you need to run go mod download?", importedPkg.PkgPath))
 			}
-			if importedPkg.Module.Path != p.Module.Path {
-				pkg.Imports[newPkg.ID] = newPkg
-			}
+
+			pkg.Imports[newPkg.ID] = newPkg
+
 			if !r.isResolved(newPkg) {
 				newPackages = append(newPackages, importedPkg)
 			}
@@ -293,7 +316,7 @@ func (r *resolver) resolve(pkgs []*packages.Package) {
 }
 
 func (mods *Modules) Import(pkg *packages.Package) *ModulePart {
-	pkgModule, ok := mods.ImportPaths[pkg]
+	pkgModule, ok := mods.ImportPaths[pkg.ID]
 	if ok {
 		return pkgModule
 	}
@@ -304,7 +327,7 @@ func (mods *Modules) Import(pkg *packages.Package) *ModulePart {
 	}
 	for _, part := range module.Parts {
 		if part.IsWildcardImport(pkg) {
-			mods.ImportPaths[pkg] = part
+			mods.ImportPaths[pkg.ID] = part
 			return part
 		}
 	}

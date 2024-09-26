@@ -31,6 +31,6 @@ jobs:
       - name: Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        uses: thought-machine/release-action@0.3.0
+        uses: thought-machine/release-action@v0.3.0
         with:
           release-files: plz-out/package
